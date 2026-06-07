@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>User</title>
+</head>
+<body>
+  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
+  <main>
+    <div class="toolbar"><h1>{{.User.Username}}</h1><form method="post" action="/users/{{.User.ID}}/sync"><button>Sync affected nodes</button></form></div>
+    <section class="panel">
+      <h2>Profile</h2>
+      <form method="post" action="/users/{{.User.ID}}" class="grid-form">
+        <label>Username <input name="username" value="{{.User.Username}}" required></label>
+        <label>Display name <input name="display_name" value="{{if .User.DisplayName}}{{.User.DisplayName}}{{end}}"></label>
+        <label>Expires at <input type="date" name="expires_at" value="{{formatDateInput .User.ExpiresAt}}"></label>
+        <label>Notes <input name="notes" value="{{if .User.Notes}}{{.User.Notes}}{{end}}"></label>
+        <label class="check"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}> Enabled</label>
+        <button>Save</button>
+      </form>
+      <p>Subscription URL: <code>{{.SubscriptionURL}}</code></p>
+      <form method="post" action="/users/{{.User.ID}}/enable"><button>Enable</button></form>
+      <form method="post" action="/users/{{.User.ID}}/disable"><button>Disable</button></form>
+    </section>
+    <section class="panel">
+      <h2>Assign Node</h2>
+      <form method="post" action="/users/{{.User.ID}}/assign-node" class="grid-form">
+        <label>Node <select name="node_id">{{range .Nodes}}<option value="{{.ID}}">{{.Name}} ({{.ProtocolType}})</option>{{end}}</select></label>
+        <label>Protocol username <input name="protocol_username" placeholder="generated when empty"></label>
+        <label>Protocol password <input name="protocol_password" placeholder="generated when empty"></label>
+        <button>Assign</button>
+      </form>
+    </section>
+    <table>
+      <thead><tr><th>Node</th><th>Protocol</th><th>Username</th><th>Password</th><th>Enabled</th><th></th></tr></thead>
+      <tbody>{{range .Access}}<tr><td>{{.NodeID}}</td><td>{{.ProtocolType}}</td><td>{{.ProtocolUsername}}</td><td>{{mask .ProtocolPassword}}</td><td>{{.Enabled}}</td><td><form method="post" action="/users/{{.UserID}}/unassign-node"><input type="hidden" name="node_id" value="{{.NodeID}}"><button class="danger">Unassign</button></form></td></tr>{{else}}<tr><td colspan="6">No node assignments.</td></tr>{{end}}</tbody>
+    </table>
+  </main>
+</body>
+</html>

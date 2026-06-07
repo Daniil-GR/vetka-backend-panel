@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Vetka Nodes</title>
+</head>
+<body>
+  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
+  <main>
+    <div class="toolbar"><h1>Nodes</h1><form method="post" action="/nodes/sync-all"><button>Sync all</button></form></div>
+    <section class="panel">
+      <h2>Create Node</h2>
+      <form method="post" action="/nodes" class="grid-form">
+        <label>Name <input name="name" required></label>
+        <label>Node ID <input name="node_id" placeholder="generated when empty"></label>
+        <label>Domain <input name="domain" required></label>
+        <label>API URL <input name="api_url" placeholder="http://host:2222"></label>
+        <label>Protocol <select name="protocol_type"><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
+        <label>Node secret <input name="node_secret" placeholder="generated when empty"></label>
+        <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
+        <button type="submit">Create</button>
+      </form>
+    </section>
+    <section class="panel">
+      <h2>Edit Node</h2>
+      <form method="post" action="/nodes/update" class="grid-form">
+        <label>Node <select name="id">{{range .Nodes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select></label>
+        <label>Name <input name="name" required></label>
+        <label>Node ID <input name="node_id" required></label>
+        <label>Domain <input name="domain" required></label>
+        <label>API URL <input name="api_url" required></label>
+        <label>Protocol <select name="protocol_type"><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
+        <label>Node secret <input name="node_secret" placeholder="keep current when empty"></label>
+        <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
+        <button type="submit">Save</button>
+      </form>
+    </section>
+    <table>
+      <thead><tr><th>Name</th><th>Node ID</th><th>Protocol</th><th>API</th><th>Secret</th><th>Versions</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{range .Nodes}}
+        <tr>
+          <td>{{.Name}}<br><small>{{.Domain}}</small></td>
+          <td>{{.NodeID}}</td>
+          <td>{{.ProtocolType}}</td>
+          <td>{{.APIURL}}</td>
+          <td>{{mask .NodeSecret}}</td>
+          <td>{{.LastAppliedVersion}} / {{.DesiredConfigVersion}}</td>
+          <td>{{if .LastStatus}}{{.LastStatus}}{{else}}unknown{{end}}<br><small>{{if .LastError}}{{.LastError}}{{end}}</small></td>
+          <td class="actions">
+            <form method="post" action="/nodes/{{.ID}}/health"><button>Health</button></form>
+            <form method="post" action="/nodes/{{.ID}}/status"><button>Status</button></form>
+            <form method="post" action="/nodes/{{.ID}}/sync"><button>Sync</button></form>
+            <form method="post" action="/nodes/{{.ID}}/delete"><button class="danger">Delete</button></form>
+          </td>
+        </tr>
+        {{else}}<tr><td colspan="8">No nodes yet.</td></tr>{{end}}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

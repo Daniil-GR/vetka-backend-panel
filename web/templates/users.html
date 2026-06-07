@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Vetka Users</title>
+</head>
+<body>
+  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
+  <main>
+    <h1>Users</h1>
+    <section class="panel">
+      <h2>Create User</h2>
+      <form method="post" action="/users" class="grid-form">
+        <label>Username <input name="username" required></label>
+        <label>Display name <input name="display_name"></label>
+        <label>Expires at <input type="date" name="expires_at"></label>
+        <label>Notes <input name="notes"></label>
+        <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
+        <fieldset><legend>Assign nodes</legend>{{range .Nodes}}<label class="check"><input type="checkbox" name="node_ids" value="{{.ID}}"> {{.Name}} ({{.ProtocolType}})</label>{{else}}No nodes available.{{end}}</fieldset>
+        <button type="submit">Create</button>
+      </form>
+    </section>
+    <table>
+      <thead><tr><th>Username</th><th>Display</th><th>Enabled</th><th>Expires</th><th>Subscription token</th><th></th></tr></thead>
+      <tbody>{{range .Users}}<tr><td><a href="/users/{{.ID}}">{{.Username}}</a></td><td>{{if .DisplayName}}{{.DisplayName}}{{end}}</td><td>{{.Enabled}}</td><td>{{formatTime .ExpiresAt}}</td><td>{{mask .SubscriptionToken}}</td><td><form method="post" action="/users/{{.ID}}/delete"><button class="danger">Delete</button></form></td></tr>{{else}}<tr><td colspan="6">No users yet.</td></tr>{{end}}</tbody>
+    </table>
+  </main>
+</body>
+</html>

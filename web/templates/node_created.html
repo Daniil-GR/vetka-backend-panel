@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Node Created</title>
+</head>
+<body>
+  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
+  <main>
+    <h1>Node created</h1>
+    <p>Store this secret now. After this screen the UI shows only a masked value.</p>
+    <pre>NODE_ID="{{.Node.NodeID}}"
+NODE_SECRET="{{.Node.NodeSecret}}"
+PROTOCOL_TYPE="{{.Node.ProtocolType}}"
+NODE_PORT="{{.DefaultPort}}"
+NODE_LISTEN_HOST="0.0.0.0"
+BACKEND_PANEL_IP="{{.BackendIP}}"</pre>
+    <pre>git clone https://github.com/Daniil-GR/vetka-node-agent.git /opt/vetka-node-agent-src
+cd /opt/vetka-node-agent-src
+
+sudo env \
+  NODE_ID="{{.Node.NodeID}}" \
+  NODE_SECRET="{{.Node.NodeSecret}}" \
+  PROTOCOL_TYPE="{{.Node.ProtocolType}}" \
+  NODE_PORT="{{.DefaultPort}}" \
+  NODE_LISTEN_HOST="0.0.0.0" \
+  BACKEND_PANEL_IP="{{.BackendIP}}" \
+  bash install.sh</pre>
+    <p><strong>Production:</strong> port {{.DefaultPort}} should be open only from the Backend Panel IP.</p>
+    <a class="button" href="/nodes">Back to nodes</a>
+  </main>
+</body>
+</html>

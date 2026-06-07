@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Vetka Dashboard</title>
+</head>
+<body>
+  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
+  <main>
+    <section class="metrics">
+      <div><span>Nodes</span><strong>{{.NodeCount}}</strong></div>
+      <div><span>Users</span><strong>{{.UserCount}}</strong></div>
+      <div><span>Online</span><strong>{{.OnlineNodes}}</strong></div>
+      <div><span>Offline</span><strong>{{.OfflineNodes}}</strong></div>
+    </section>
+    <h2>Recent Sync Events</h2>
+    <table>
+      <thead><tr><th>Created</th><th>Node</th><th>Version</th><th>Status</th><th>HTTP</th><th>Error</th></tr></thead>
+      <tbody>
+        {{range .Events}}<tr><td>{{formatTime .CreatedAt}}</td><td>{{.NodeID}}</td><td>{{.ConfigVersion}}</td><td>{{.Status}}</td><td>{{if .HTTPStatus}}{{.HTTPStatus}}{{end}}</td><td>{{if .Error}}{{.Error}}{{end}}</td></tr>{{else}}
+        <tr><td colspan="6">No sync events yet.</td></tr>{{end}}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
