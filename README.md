@@ -143,9 +143,25 @@ Create users in `/users`. The panel generates `subscription_token` and per-node 
 https://sub.vetka.tech/sub/<subscription_token>
 ```
 
+Default subscription responses are JSON configs suitable for Karing and sing-box-style imports:
+
+```text
+/sub/<token>
+/sub/<token>?format=json
+/sub/<token>?format=karing
+/sub/<token>?format=sing-box
+```
+
+Optional plain-text formats are also available:
+
+```text
+/sub/<token>?format=raw
+/sub/<token>?format=mierus
+```
+
 Disabled or expired users do not receive a subscription response and are excluded from node sync payloads.
 
-Naive and Mieru URI builders live in `internal/subscriptions`. Naive uses the configured node port and Mieru uses the real simple sharing link format.
+JSON subscriptions include a selector outbound tagged `proxy`, protocol-specific outbounds for assigned nodes, DNS config, and route rules compatible with a simple Karing import flow. Naive uses the configured node port and Mieru uses the first port from the configured range when rendered into JSON.
 
 ## API For Future Telegram Bot
 
@@ -204,6 +220,15 @@ The installer keeps PostgreSQL private, can configure UFW, and supports either:
 - Direct HTTP mode: public `8080` only when explicitly enabled
 
 `update.sh` preserves the chosen install mode. PostgreSQL is never published publicly by the default compose stack.
+
+Useful deployment commands:
+
+```bash
+cd /opt/vetka-backend-panel
+docker compose ps
+docker compose logs --tail=100 backend
+docker compose exec -T postgres pg_isready -U vetka -d vetka_backend
+```
 
 ## Checks
 

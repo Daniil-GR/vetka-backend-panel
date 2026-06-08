@@ -21,7 +21,10 @@
         <label class="check"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}> Enabled</label>
         <button>Save</button>
       </form>
-      <p>Subscription URL: <code>{{.SubscriptionURL}}</code></p>
+      <p>Default subscription: <code>{{.SubscriptionURL}}</code></p>
+      <p>Karing JSON: <code>{{.SubscriptionJSONURL}}</code></p>
+      <p>Raw links: <code>{{.SubscriptionRawURL}}</code></p>
+      <p>Mieru simple: <code>{{.SubscriptionMierusURL}}</code></p>
       <form method="post" action="/users/{{.User.ID}}/enable"><button>Enable</button></form>
       <form method="post" action="/users/{{.User.ID}}/disable"><button>Disable</button></form>
     </section>

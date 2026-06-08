@@ -225,13 +225,16 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 	access, _ := h.userRepo.AccessForUser(r.Context(), user.ID)
 	nodesList, _ := h.nodeRepo.List(r.Context())
 	h.render(w, "user_detail.html", map[string]any{
-		"Title":           "User",
-		"User":            user,
-		"Access":          access,
-		"Nodes":           nodesList,
-		"SubscriptionURL": h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken,
-		"Flash":           r.URL.Query().Get("flash"),
-		"FlashLevel":      r.URL.Query().Get("level"),
+		"Title":                 "User",
+		"User":                  user,
+		"Access":                access,
+		"Nodes":                 nodesList,
+		"SubscriptionURL":       h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken,
+		"SubscriptionJSONURL":   h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=json",
+		"SubscriptionRawURL":    h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=raw",
+		"SubscriptionMierusURL": h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=mierus",
+		"Flash":                 r.URL.Query().Get("flash"),
+		"FlashLevel":            r.URL.Query().Get("level"),
 	})
 }
 
@@ -345,12 +348,12 @@ func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Subscription(w http.ResponseWriter, r *http.Request) {
-	body, err := h.subSvc.BuildByToken(r.Context(), chi.URLParam(r, "token"))
+	body, contentType, err := h.subSvc.BuildByToken(r.Context(), chi.URLParam(r, "token"), r.URL.Query().Get("format"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write([]byte(body + "\n"))
 }
 
@@ -474,7 +477,15 @@ func (h *Handler) APIUserSubscription(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, http.StatusNotFound, nil, err)
 		return
 	}
-	writeJSONOrError(w, http.StatusOK, map[string]string{"url": h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken}, nil)
+	base := h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken
+	writeJSONOrError(w, http.StatusOK, map[string]string{
+		"url":         base,
+		"json_url":    base + "?format=json",
+		"karing_url":  base + "?format=karing",
+		"raw_url":     base + "?format=raw",
+		"mierus_url":  base + "?format=mierus",
+		"singbox_url": base + "?format=sing-box",
+	}, nil)
 }
 
 func (h *Handler) APIListNodes(w http.ResponseWriter, r *http.Request) {
