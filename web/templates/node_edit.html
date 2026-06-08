@@ -20,6 +20,14 @@
         <label>API URL <input name="api_url" value="{{.Node.APIURL}}"></label>
         <label>Protocol <select name="protocol_type"><option value="naive" {{if eq .Node.ProtocolType "naive"}}selected{{end}}>naive</option><option value="mieru" {{if eq .Node.ProtocolType "mieru"}}selected{{end}}>mieru</option></select></label>
         <label>Node secret <input name="node_secret" placeholder="keep current when empty"></label>
+        <label>Mieru ports <input name="mieru_ports" value="{{join .Node.ProtocolSettings.Mieru.Ports ","}}"></label>
+        <label>Mieru protocol <input name="mieru_protocol" value="{{.Node.ProtocolSettings.Mieru.Protocol}}"></label>
+        <label>Mieru MTU <input name="mieru_mtu" value="{{.Node.ProtocolSettings.Mieru.MTU}}"></label>
+        <label>Mieru multiplexing <input name="mieru_multiplexing" value="{{.Node.ProtocolSettings.Mieru.Multiplexing}}"></label>
+        <label>Mieru handshake mode <input name="mieru_handshake_mode" value="{{.Node.ProtocolSettings.Mieru.HandshakeMode}}"></label>
+        <label>Mieru traffic pattern <input name="mieru_traffic_pattern" value="{{.Node.ProtocolSettings.Mieru.TrafficPattern}}"></label>
+        <label>Mieru profile <input name="mieru_profile" value="{{.Node.ProtocolSettings.Mieru.Profile}}"></label>
+        <label>Naive port <input name="naive_port" value="{{.Node.ProtocolSettings.Naive.Port}}"></label>
         <label>Enabled <select name="enabled"><option value="true" {{if .Node.Enabled}}selected{{end}}>true</option><option value="false" {{if not .Node.Enabled}}selected{{end}}>false</option></select></label>
         <button type="submit">Save</button>
       </form>

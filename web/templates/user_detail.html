@@ -10,6 +10,7 @@
   <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
   <main>
     <div class="toolbar"><h1>{{.User.Username}}</h1><form method="post" action="/users/{{.User.ID}}/sync"><button>Sync affected nodes</button></form></div>
+    {{if .Flash}}<div class="flash {{.FlashLevel}}">{{.Flash}}</div>{{end}}
     <section class="panel">
       <h2>Profile</h2>
       <form method="post" action="/users/{{.User.ID}}" class="grid-form">

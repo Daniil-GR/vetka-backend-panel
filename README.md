@@ -37,13 +37,13 @@ Or run both services through Compose:
 docker compose up --build
 ```
 
-The UI listens on `http://localhost:8080` by default. Login uses `ADMIN_USERNAME` and `ADMIN_PASSWORD`. API endpoints use:
+The default `docker-compose.yml` keeps both PostgreSQL and the backend on the internal Docker network only. Login uses `ADMIN_USERNAME` and `ADMIN_PASSWORD`. API endpoints use:
 
 ```http
 Authorization: Bearer <ADMIN_API_TOKEN>
 ```
 
-The default `docker-compose.yml` keeps PostgreSQL on the internal Docker network only. Do not publish PostgreSQL publicly from the default stack. If local direct access is needed for development, use a separate override file with a loopback-only PostgreSQL port binding rather than a public bind.
+For HTTPS deployments, the repository also includes a `caddy` service and [Caddyfile](C:/Users/79293/Documents/VetkaBackendPanel/Caddyfile). Run Compose with the `https` profile and provide `CADDY_DOMAIN` plus `PUBLIC_BASE_URL=https://your-domain`. In HTTPS mode only `80/443` should be public. Direct HTTP mode exposes `8080` only when it is explicitly enabled through an override file.
 
 ## Migrations
 
@@ -115,6 +115,26 @@ Node setup states:
 
 For a planned node, `Health`, `Status`, or `Sync` can promote it to `connected` once the agent becomes reachable and `/status` succeeds.
 
+## Protocol Settings
+
+Each node stores `protocol_settings` in PostgreSQL.
+
+- Mieru settings: port range, protocol, MTU, multiplexing, handshake mode, traffic pattern, profile.
+- Naive settings: port.
+
+Defaults:
+
+- Mieru ports: `2012-2022`
+- Mieru protocol: `TCP`
+- Mieru MTU: `1400`
+- Mieru multiplexing: `MULTIPLEXING_HIGH`
+- Mieru handshake mode: `HANDSHAKE_NO_WAIT`
+- Mieru traffic pattern: empty
+- Mieru profile: node name
+- Naive port: `443`
+
+The subscription builder now emits real `mierus://` sharing links for Mieru nodes using these settings, including repeated `port` and `protocol` pairs when multiple port ranges are configured.
+
 ## Users And Subscriptions
 
 Create users in `/users`. The panel generates `subscription_token` and per-node protocol credentials. A user subscription is available at:
@@ -125,7 +145,7 @@ https://sub.vetka.tech/sub/<subscription_token>
 
 Disabled or expired users do not receive a subscription response and are excluded from node sync payloads.
 
-Naive and Mieru URI builders live in `internal/subscriptions`. The Naive URI format and Mieru share link are marked with TODOs until final client formats are confirmed.
+Naive and Mieru URI builders live in `internal/subscriptions`. Naive uses the configured node port and Mieru uses the real simple sharing link format.
 
 ## API For Future Telegram Bot
 
@@ -160,13 +180,30 @@ Telegram Bot and payment logic are not part of this repository.
 
 `node_secret` is stored in PostgreSQL for the MVP. The UI masks it after creation and API responses should avoid exposing raw secrets outside trusted admin flows.
 
-PostgreSQL should not be publicly reachable. Node Agent port `2222` should be open only for the Backend Panel IP.
+PostgreSQL should never be publicly reachable. Node Agent port `2222` should be open only for the Backend Panel IP.
 
 If `NODE_SECRET` is exposed, rotate it and update the backend record before the next sync.
+
+Admin UI should be served behind HTTPS in production. In HTTPS mode only `80/443` should be exposed. In direct HTTP mode `8080` should be exposed only when you explicitly enable it. Generated secrets should be stored securely and should not be committed to git.
 
 TODO: add encryption at rest for node secrets using `APP_SECRET`.
 
 Never commit real `.env` files or production secrets.
+
+## Installer
+
+The repository includes:
+
+- [install.sh](C:/Users/79293/Documents/VetkaBackendPanel/install.sh): install dependencies, generate secrets, create `.env`, manage `docker-compose.override.yml`, optionally enable Caddy HTTPS, and start the stack.
+- [update.sh](C:/Users/79293/Documents/VetkaBackendPanel/update.sh): fetch, confirm target revision, reset to `origin/main`, rebuild containers in the same HTTPS or direct HTTP mode stored in `.env`, and check health.
+- [uninstall.sh](C:/Users/79293/Documents/VetkaBackendPanel/uninstall.sh): stop containers and optionally remove data and application files.
+
+The installer keeps PostgreSQL private, can configure UFW, and supports either:
+
+- HTTPS mode: public `80/443` through Caddy, no public backend `8080`
+- Direct HTTP mode: public `8080` only when explicitly enabled
+
+`update.sh` preserves the chosen install mode. PostgreSQL is never published publicly by the default compose stack.
 
 ## Checks
 

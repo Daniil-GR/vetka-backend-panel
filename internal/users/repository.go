@@ -138,7 +138,7 @@ order by u.username`, nodeID)
 }
 
 func (r *Repository) ActiveAccessForSubscription(ctx context.Context, userID string) ([]AccessWithNode, error) {
-	rows, err := r.pool.Query(ctx, `select a.id, a.user_id, a.node_id, a.protocol_type, a.protocol_username, a.protocol_password, a.enabled, a.created_at, a.updated_at, n.node_id, n.name, n.domain, n.api_url, n.protocol_type
+	rows, err := r.pool.Query(ctx, `select a.id, a.user_id, a.node_id, a.protocol_type, a.protocol_username, a.protocol_password, a.enabled, a.created_at, a.updated_at, n.node_id, n.name, n.domain, n.api_url, n.protocol_type, n.protocol_settings
 from user_node_access a
 join nodes n on n.id = a.node_id
 where a.user_id=$1 and a.enabled and n.enabled
@@ -149,18 +149,19 @@ order by n.name`, userID)
 	defer rows.Close()
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (AccessWithNode, error) {
 		var a AccessWithNode
-		err := row.Scan(&a.ID, &a.UserID, &a.NodeID, &a.ProtocolType, &a.ProtocolUsername, &a.ProtocolPassword, &a.Enabled, &a.CreatedAt, &a.UpdatedAt, &a.AgentNodeID, &a.NodeName, &a.NodeDomain, &a.NodeAPIURL, &a.NodeProtocolType)
+		err := row.Scan(&a.ID, &a.UserID, &a.NodeID, &a.ProtocolType, &a.ProtocolUsername, &a.ProtocolPassword, &a.Enabled, &a.CreatedAt, &a.UpdatedAt, &a.AgentNodeID, &a.NodeName, &a.NodeDomain, &a.NodeAPIURL, &a.NodeProtocolType, &a.NodeProtocolSettingsJSON)
 		return a, err
 	})
 }
 
 type AccessWithNode struct {
 	Access
-	AgentNodeID      string
-	NodeName         string
-	NodeDomain       string
-	NodeAPIURL       string
-	NodeProtocolType string
+	AgentNodeID              string
+	NodeName                 string
+	NodeDomain               string
+	NodeAPIURL               string
+	NodeProtocolType         string
+	NodeProtocolSettingsJSON []byte
 }
 
 func IsExpired(expiresAt *time.Time) bool {

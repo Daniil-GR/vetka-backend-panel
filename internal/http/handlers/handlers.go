@@ -187,7 +187,13 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nodesList, _ := h.nodeRepo.List(r.Context())
-	h.render(w, "users.html", map[string]any{"Title": "Users", "Users": list, "Nodes": nodesList})
+	h.render(w, "users.html", map[string]any{
+		"Title":      "Users",
+		"Users":      list,
+		"Nodes":      nodesList,
+		"Flash":      r.URL.Query().Get("flash"),
+		"FlashLevel": r.URL.Query().Get("level"),
+	})
 }
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +209,12 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	http.Redirect(w, r, "/users/"+user.ID, http.StatusFound)
+	syncErrors := h.syncNodesAfterChange(r.Context(), userInputFromForm(r).NodeIDs)
+	if len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+user.ID, "User saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+user.ID, "User saved and synced", "success")
 }
 
 func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
@@ -213,32 +224,76 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	access, _ := h.userRepo.AccessForUser(r.Context(), user.ID)
 	nodesList, _ := h.nodeRepo.List(r.Context())
-	h.render(w, "user_detail.html", map[string]any{"Title": "User", "User": user, "Access": access, "Nodes": nodesList, "SubscriptionURL": h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken})
+	h.render(w, "user_detail.html", map[string]any{
+		"Title":           "User",
+		"User":            user,
+		"Access":          access,
+		"Nodes":           nodesList,
+		"SubscriptionURL": h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken,
+		"Flash":           r.URL.Query().Get("flash"),
+		"FlashLevel":      r.URL.Query().Get("level"),
+	})
 }
 
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	_, err := h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), userInputFromForm(r))
+	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
 	if h.handleErr(w, err) {
 		return
 	}
-	http.Redirect(w, r, "/users/"+chi.URLParam(r, "id"), http.StatusFound)
+	_, err = h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), userInputFromForm(r))
+	if h.handleErr(w, err) {
+		return
+	}
+	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User saved and synced", "success")
 }
 
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
+	if h.handleErr(w, err) {
+		return
+	}
 	if h.handleErr(w, h.userRepo.Delete(r.Context(), chi.URLParam(r, "id"))) {
 		return
 	}
-	http.Redirect(w, r, "/users", http.StatusFound)
+	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users", "User deleted, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users", "User deleted and synced", "success")
 }
 
 func (h *Handler) EnableUser(w http.ResponseWriter, r *http.Request) {
-	_ = h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), true)
-	http.Redirect(w, r, "/users/"+chi.URLParam(r, "id"), http.StatusFound)
+	if err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), true); h.handleErr(w, err) {
+		return
+	}
+	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
+	if h.handleErr(w, err) {
+		return
+	}
+	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User enabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User enabled and synced", "success")
 }
 
 func (h *Handler) DisableUser(w http.ResponseWriter, r *http.Request) {
-	_ = h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), false)
-	http.Redirect(w, r, "/users/"+chi.URLParam(r, "id"), http.StatusFound)
+	if err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), false); h.handleErr(w, err) {
+		return
+	}
+	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
+	if h.handleErr(w, err) {
+		return
+	}
+	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User disabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User disabled and synced", "success")
 }
 
 func (h *Handler) AssignNode(w http.ResponseWriter, r *http.Request) {
@@ -258,12 +313,23 @@ func (h *Handler) AssignNode(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	http.Redirect(w, r, "/users/"+chi.URLParam(r, "id"), http.StatusFound)
+	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{node.ID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Assignment saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Assignment saved and synced", "success")
 }
 
 func (h *Handler) UnassignNode(w http.ResponseWriter, r *http.Request) {
-	_ = h.userRepo.UnassignNode(r.Context(), chi.URLParam(r, "id"), r.FormValue("node_id"))
-	http.Redirect(w, r, "/users/"+chi.URLParam(r, "id"), http.StatusFound)
+	nodeID := r.FormValue("node_id")
+	if err := h.userRepo.UnassignNode(r.Context(), chi.URLParam(r, "id"), nodeID); h.handleErr(w, err) {
+		return
+	}
+	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{nodeID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Unassigned, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node unassigned and synced", "success")
 }
 
 func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
@@ -272,10 +338,10 @@ func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(errs) > 0 {
-		http.Error(w, strings.Join(errs, "; "), http.StatusBadGateway)
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Sync failed for nodes: "+strings.Join(errs, "; "), "error")
 		return
 	}
-	http.Redirect(w, r, "/users/"+chi.URLParam(r, "id"), http.StatusFound)
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Affected nodes synced", "success")
 }
 
 func (h *Handler) Subscription(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +365,12 @@ func (h *Handler) APICreateUser(w http.ResponseWriter, r *http.Request) {
 		protocols[node.ID] = node.ProtocolType
 	}
 	user, err := h.userSvc.CreateUser(r.Context(), in, protocols)
-	writeJSONOrError(w, http.StatusCreated, user, err)
+	if err != nil {
+		writeJSONOrError(w, http.StatusCreated, user, err)
+		return
+	}
+	syncErrors := h.syncNodesAfterChange(r.Context(), in.NodeIDs)
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "user": user, "sync_errors": syncErrors})
 }
 
 func (h *Handler) APIGetUser(w http.ResponseWriter, r *http.Request) {
@@ -313,15 +384,32 @@ func (h *Handler) APIUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, err := h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), in)
-	writeJSONOrError(w, http.StatusOK, user, err)
+	if err != nil {
+		writeJSONOrError(w, http.StatusOK, user, err)
+		return
+	}
+	nodeIDs, _ := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user": user, "sync_errors": h.syncNodesAfterChange(r.Context(), nodeIDs)})
 }
 
 func (h *Handler) APIEnableUser(w http.ResponseWriter, r *http.Request) {
-	writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), true))
+	err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), true)
+	if err != nil {
+		writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, err)
+		return
+	}
+	nodeIDs, _ := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sync_errors": h.syncNodesAfterChange(r.Context(), nodeIDs)})
 }
 
 func (h *Handler) APIDisableUser(w http.ResponseWriter, r *http.Request) {
-	writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), false))
+	err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), false)
+	if err != nil {
+		writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, err)
+		return
+	}
+	nodeIDs, _ := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sync_errors": h.syncNodesAfterChange(r.Context(), nodeIDs)})
 }
 
 func (h *Handler) APIAssignNode(w http.ResponseWriter, r *http.Request) {
@@ -345,7 +433,11 @@ func (h *Handler) APIAssignNode(w http.ResponseWriter, r *http.Request) {
 		in.ProtocolPassword, _ = security.Token("p", 18)
 	}
 	err = h.userRepo.AssignNode(r.Context(), chi.URLParam(r, "id"), node.ID, node.ProtocolType, in.ProtocolUsername, in.ProtocolPassword)
-	writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, err)
+	if err != nil {
+		writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sync_errors": h.syncNodesAfterChange(r.Context(), []string{node.ID})})
 }
 
 func (h *Handler) APIUnassignNode(w http.ResponseWriter, r *http.Request) {
@@ -355,7 +447,12 @@ func (h *Handler) APIUnassignNode(w http.ResponseWriter, r *http.Request) {
 	if decodeJSON(w, r, &in) {
 		return
 	}
-	writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, h.userRepo.UnassignNode(r.Context(), chi.URLParam(r, "id"), in.NodeID))
+	err := h.userRepo.UnassignNode(r.Context(), chi.URLParam(r, "id"), in.NodeID)
+	if err != nil {
+		writeJSONOrError(w, http.StatusOK, map[string]bool{"ok": true}, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sync_errors": h.syncNodesAfterChange(r.Context(), []string{in.NodeID})})
 }
 
 func (h *Handler) APISyncUser(w http.ResponseWriter, r *http.Request) {
@@ -492,6 +589,20 @@ func nodeInputFromForm(r *http.Request) nodes.CreateNodeInput {
 		ProtocolType: r.FormValue("protocol_type"),
 		NodeSecret:   r.FormValue("node_secret"),
 		Enabled:      boolFromForm(r, "enabled", true),
+		ProtocolSettings: nodes.ProtocolSettings{
+			Mieru: nodes.MieruProtocolSettings{
+				Ports:          splitCSV(r.FormValue("mieru_ports")),
+				Protocol:       r.FormValue("mieru_protocol"),
+				MTU:            intFromForm(r.FormValue("mieru_mtu")),
+				Multiplexing:   r.FormValue("mieru_multiplexing"),
+				HandshakeMode:  r.FormValue("mieru_handshake_mode"),
+				TrafficPattern: r.FormValue("mieru_traffic_pattern"),
+				Profile:        r.FormValue("mieru_profile"),
+			},
+			Naive: nodes.NaiveProtocolSettings{
+				Port: intFromForm(r.FormValue("naive_port")),
+			},
+		},
 	}
 }
 
@@ -527,6 +638,32 @@ func parseDate(value string) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+func intFromForm(value string) int {
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func stringPtr(value string) *string {
@@ -582,24 +719,60 @@ func (h *Handler) syncUserAssignments(ctx context.Context, userID string) ([]str
 	return errs, nil
 }
 
+func (h *Handler) syncNodesAfterChange(ctx context.Context, nodeIDs []string) []string {
+	seen := map[string]bool{}
+	errs := make([]string, 0)
+	for _, nodeID := range nodeIDs {
+		if nodeID == "" || seen[nodeID] {
+			continue
+		}
+		seen[nodeID] = true
+		node, err := h.nodeRepo.Get(ctx, nodeID)
+		if err != nil {
+			errs = append(errs, nodeID+": "+err.Error())
+			continue
+		}
+		if !node.Enabled {
+			continue
+		}
+		if _, err := h.nodeManager.SyncNode(ctx, nodeID); err != nil {
+			errs = append(errs, nodeID+": "+err.Error())
+		}
+	}
+	return errs
+}
+
+func (h *Handler) userNodeIDs(ctx context.Context, userID string) ([]string, error) {
+	access, err := h.userRepo.AccessForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	nodeIDs := make([]string, 0, len(access))
+	for _, item := range access {
+		nodeIDs = append(nodeIDs, item.NodeID)
+	}
+	return nodeIDs, nil
+}
+
 type nodeResponse struct {
-	ID                   string     `json:"id"`
-	NodeID               string     `json:"node_id"`
-	Name                 string     `json:"name"`
-	Domain               string     `json:"domain"`
-	APIURL               string     `json:"api_url"`
-	ProtocolType         string     `json:"protocol_type"`
-	NodeSecret           string     `json:"node_secret"`
-	Enabled              bool       `json:"enabled"`
-	SetupState           string     `json:"setup_state"`
-	DesiredConfigVersion int64      `json:"desired_config_version"`
-	LastAppliedVersion   int64      `json:"last_applied_version"`
-	LastSeenAt           *time.Time `json:"last_seen_at,omitempty"`
-	LastStatus           *string    `json:"last_status,omitempty"`
-	LastError            *string    `json:"last_error,omitempty"`
-	LastSyncAt           *time.Time `json:"last_sync_at,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                   string                 `json:"id"`
+	NodeID               string                 `json:"node_id"`
+	Name                 string                 `json:"name"`
+	Domain               string                 `json:"domain"`
+	APIURL               string                 `json:"api_url"`
+	ProtocolType         string                 `json:"protocol_type"`
+	NodeSecret           string                 `json:"node_secret"`
+	Enabled              bool                   `json:"enabled"`
+	SetupState           string                 `json:"setup_state"`
+	ProtocolSettings     nodes.ProtocolSettings `json:"protocol_settings"`
+	DesiredConfigVersion int64                  `json:"desired_config_version"`
+	LastAppliedVersion   int64                  `json:"last_applied_version"`
+	LastSeenAt           *time.Time             `json:"last_seen_at,omitempty"`
+	LastStatus           *string                `json:"last_status,omitempty"`
+	LastError            *string                `json:"last_error,omitempty"`
+	LastSyncAt           *time.Time             `json:"last_sync_at,omitempty"`
+	CreatedAt            time.Time              `json:"created_at"`
+	UpdatedAt            time.Time              `json:"updated_at"`
 }
 
 func newNodeResponse(node nodes.Node, exposeRawSecret bool) nodeResponse {
@@ -617,6 +790,7 @@ func newNodeResponse(node nodes.Node, exposeRawSecret bool) nodeResponse {
 		NodeSecret:           secret,
 		Enabled:              node.Enabled,
 		SetupState:           node.SetupState,
+		ProtocolSettings:     node.ProtocolSettings,
 		DesiredConfigVersion: node.DesiredConfigVersion,
 		LastAppliedVersion:   node.LastAppliedVersion,
 		LastSeenAt:           node.LastSeenAt,

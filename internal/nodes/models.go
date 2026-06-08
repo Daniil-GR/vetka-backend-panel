@@ -22,6 +22,7 @@ type Node struct {
 	NodeSecret           string
 	Enabled              bool
 	SetupState           string
+	ProtocolSettings     ProtocolSettings
 	DesiredConfigVersion int64
 	LastAppliedVersion   int64
 	LastSeenAt           *time.Time
@@ -33,17 +34,37 @@ type Node struct {
 }
 
 type CreateNodeInput struct {
-	Mode         string `json:"mode"`
-	NodeID       string `json:"node_id"`
-	Name         string `json:"name"`
-	Domain       string `json:"domain"`
-	APIURL       string `json:"api_url"`
-	ProtocolType string `json:"protocol_type"`
-	NodeSecret   string `json:"node_secret"`
-	Enabled      bool   `json:"enabled"`
+	Mode             string           `json:"mode"`
+	NodeID           string           `json:"node_id"`
+	Name             string           `json:"name"`
+	Domain           string           `json:"domain"`
+	APIURL           string           `json:"api_url"`
+	ProtocolType     string           `json:"protocol_type"`
+	NodeSecret       string           `json:"node_secret"`
+	Enabled          bool             `json:"enabled"`
+	ProtocolSettings ProtocolSettings `json:"protocol_settings"`
 }
 
 type UpdateNodeInput = CreateNodeInput
+
+type ProtocolSettings struct {
+	Mieru MieruProtocolSettings `json:"mieru"`
+	Naive NaiveProtocolSettings `json:"naive"`
+}
+
+type MieruProtocolSettings struct {
+	Ports          []string `json:"ports"`
+	Protocol       string   `json:"protocol"`
+	MTU            int      `json:"mtu"`
+	Multiplexing   string   `json:"multiplexing"`
+	HandshakeMode  string   `json:"handshake_mode"`
+	TrafficPattern string   `json:"traffic_pattern"`
+	Profile        string   `json:"profile"`
+}
+
+type NaiveProtocolSettings struct {
+	Port int `json:"port"`
+}
 
 type SyncEvent struct {
 	ID            string

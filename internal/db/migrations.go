@@ -118,4 +118,11 @@ alter table nodes
   check (setup_state in ('planned', 'connected', 'unreachable', 'disabled'));
 `,
 	},
+	{
+		Version: "003_node_protocol_settings",
+		SQL: `
+alter table nodes
+  add column if not exists protocol_settings jsonb not null default '{}'::jsonb;
+`,
+	},
 }

@@ -21,6 +21,14 @@
         <label>API URL <input name="api_url" placeholder="optional until agent install"></label>
         <label>Protocol <select name="protocol_type"><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
         <label>Node secret <input name="node_secret" placeholder="generated when empty"></label>
+        <label>Mieru ports <input name="mieru_ports" value="2012-2022"></label>
+        <label>Mieru protocol <input name="mieru_protocol" value="TCP"></label>
+        <label>Mieru MTU <input name="mieru_mtu" value="1400"></label>
+        <label>Mieru multiplexing <input name="mieru_multiplexing" value="MULTIPLEXING_HIGH"></label>
+        <label>Mieru handshake mode <input name="mieru_handshake_mode" value="HANDSHAKE_NO_WAIT"></label>
+        <label>Mieru traffic pattern <input name="mieru_traffic_pattern"></label>
+        <label>Mieru profile <input name="mieru_profile" placeholder="defaults to node name"></label>
+        <label>Naive port <input name="naive_port" value="443"></label>
         <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
         <button type="submit">Create planned node</button>
       </form>
@@ -36,6 +44,14 @@
         <label>API URL <input name="api_url" placeholder="http://host:2222" required></label>
         <label>Protocol <select name="protocol_type"><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
         <label>Node secret <input name="node_secret" required></label>
+        <label>Mieru ports <input name="mieru_ports" value="2012-2022"></label>
+        <label>Mieru protocol <input name="mieru_protocol" value="TCP"></label>
+        <label>Mieru MTU <input name="mieru_mtu" value="1400"></label>
+        <label>Mieru multiplexing <input name="mieru_multiplexing" value="MULTIPLEXING_HIGH"></label>
+        <label>Mieru handshake mode <input name="mieru_handshake_mode" value="HANDSHAKE_NO_WAIT"></label>
+        <label>Mieru traffic pattern <input name="mieru_traffic_pattern"></label>
+        <label>Mieru profile <input name="mieru_profile" placeholder="defaults to node name"></label>
+        <label>Naive port <input name="naive_port" value="443"></label>
         <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
         <button type="submit">Adopt existing node</button>
       </form>

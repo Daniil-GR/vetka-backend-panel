@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -22,7 +23,7 @@ func (r *Repository) Count(ctx context.Context) (total, online int, err error) {
 }
 
 func (r *Repository) List(ctx context.Context) ([]Node, error) {
-	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes order by created_at desc`)
+	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, protocol_settings, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes order by created_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +32,7 @@ func (r *Repository) List(ctx context.Context) ([]Node, error) {
 }
 
 func (r *Repository) Get(ctx context.Context, id string) (Node, error) {
-	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes where id=$1`, id)
+	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, protocol_settings, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes where id=$1`, id)
 	if err != nil {
 		return Node{}, err
 	}
@@ -47,8 +48,12 @@ func (r *Repository) Create(ctx context.Context, in CreateNodeInput) (Node, erro
 	if !in.Enabled {
 		setupState = SetupStateDisabled
 	}
-	rows, err := r.pool.Query(ctx, `insert into nodes(node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state) values($1,$2,$3,$4,$5,$6,$7,$8) returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
-		in.NodeID, in.Name, in.Domain, in.APIURL, strings.ToLower(in.ProtocolType), in.NodeSecret, in.Enabled, setupState)
+	settingsJSON, err := json.Marshal(normalizeProtocolSettings(in.ProtocolSettings, in.ProtocolType, in.Name))
+	if err != nil {
+		return Node{}, err
+	}
+	rows, err := r.pool.Query(ctx, `insert into nodes(node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, protocol_settings) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, protocol_settings, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
+		in.NodeID, in.Name, in.Domain, in.APIURL, strings.ToLower(in.ProtocolType), in.NodeSecret, in.Enabled, setupState, settingsJSON)
 	if err != nil {
 		return Node{}, err
 	}
@@ -57,8 +62,12 @@ func (r *Repository) Create(ctx context.Context, in CreateNodeInput) (Node, erro
 }
 
 func (r *Repository) Update(ctx context.Context, id string, in UpdateNodeInput) (Node, error) {
-	rows, err := r.pool.Query(ctx, `update nodes set node_id=$2, name=$3, domain=$4, api_url=$5, protocol_type=$6, node_secret=$7, enabled=$8, setup_state=case when $8=false then 'disabled' when setup_state='disabled' then 'planned' else setup_state end where id=$1 returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
-		id, in.NodeID, in.Name, in.Domain, in.APIURL, strings.ToLower(in.ProtocolType), in.NodeSecret, in.Enabled)
+	settingsJSON, err := json.Marshal(normalizeProtocolSettings(in.ProtocolSettings, in.ProtocolType, in.Name))
+	if err != nil {
+		return Node{}, err
+	}
+	rows, err := r.pool.Query(ctx, `update nodes set node_id=$2, name=$3, domain=$4, api_url=$5, protocol_type=$6, node_secret=$7, enabled=$8, setup_state=case when $8=false then 'disabled' when setup_state='disabled' then 'planned' else setup_state end, protocol_settings=$9 where id=$1 returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, protocol_settings, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
+		id, in.NodeID, in.Name, in.Domain, in.APIURL, strings.ToLower(in.ProtocolType), in.NodeSecret, in.Enabled, settingsJSON)
 	if err != nil {
 		return Node{}, err
 	}
@@ -127,6 +136,41 @@ func (r *Repository) RecentEvents(ctx context.Context, limit int) ([]SyncEvent, 
 
 func scanNode(row pgx.CollectableRow) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.NodeID, &n.Name, &n.Domain, &n.APIURL, &n.ProtocolType, &n.NodeSecret, &n.Enabled, &n.SetupState, &n.DesiredConfigVersion, &n.LastAppliedVersion, &n.LastSeenAt, &n.LastStatus, &n.LastError, &n.LastSyncAt, &n.CreatedAt, &n.UpdatedAt)
+	var settingsJSON []byte
+	err := row.Scan(&n.ID, &n.NodeID, &n.Name, &n.Domain, &n.APIURL, &n.ProtocolType, &n.NodeSecret, &n.Enabled, &n.SetupState, &settingsJSON, &n.DesiredConfigVersion, &n.LastAppliedVersion, &n.LastSeenAt, &n.LastStatus, &n.LastError, &n.LastSyncAt, &n.CreatedAt, &n.UpdatedAt)
+	if err != nil {
+		return n, err
+	}
+	if len(settingsJSON) > 0 {
+		if err := json.Unmarshal(settingsJSON, &n.ProtocolSettings); err != nil {
+			return n, err
+		}
+	}
+	n.ProtocolSettings = normalizeProtocolSettings(n.ProtocolSettings, n.ProtocolType, n.Name)
 	return n, err
+}
+
+func normalizeProtocolSettings(settings ProtocolSettings, protocolType, nodeName string) ProtocolSettings {
+	if len(settings.Mieru.Ports) == 0 {
+		settings.Mieru.Ports = []string{"2012-2022"}
+	}
+	if settings.Mieru.Protocol == "" {
+		settings.Mieru.Protocol = "TCP"
+	}
+	if settings.Mieru.MTU == 0 {
+		settings.Mieru.MTU = 1400
+	}
+	if settings.Mieru.Multiplexing == "" {
+		settings.Mieru.Multiplexing = "MULTIPLEXING_HIGH"
+	}
+	if settings.Mieru.HandshakeMode == "" {
+		settings.Mieru.HandshakeMode = "HANDSHAKE_NO_WAIT"
+	}
+	if settings.Mieru.Profile == "" {
+		settings.Mieru.Profile = nodeName
+	}
+	if settings.Naive.Port == 0 {
+		settings.Naive.Port = 443
+	}
+	return settings
 }
