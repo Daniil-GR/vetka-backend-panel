@@ -30,6 +30,7 @@ label { display: grid; gap: 6px; color: var(--muted); }
 input, select { width: 100%; min-height: 38px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: white; color: var(--ink); }
 fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
 button, .button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; border: 0; border-radius: 6px; padding: 8px 12px; background: var(--accent); color: white; text-decoration: none; cursor: pointer; }
+.button.secondary { background: var(--muted); }
 button.danger { background: var(--danger); }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
 th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 10px; }
@@ -38,6 +39,11 @@ small { color: var(--muted); }
 pre { overflow: auto; background: #101828; color: #f2f4f7; border-radius: 8px; padding: 16px; }
 code { background: #eef2f6; border-radius: 4px; padding: 2px 5px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.flash { margin: 0 0 16px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--line); background: #eef2f6; }
+.flash.success { background: #ecfdf3; border-color: #abefc6; color: #067647; }
+.flash.error { background: #fef3f2; border-color: #fecdca; color: #b42318; }
+.hint { color: var(--muted); margin: 10px 0 0; }
+.inline-form { margin-top: 16px; }
 @media (max-width: 820px) {
   nav { padding: 0 14px; gap: 12px; overflow-x: auto; }
   main { padding: 18px; }

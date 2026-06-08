@@ -2,6 +2,16 @@ package nodes
 
 import "time"
 
+const (
+	SetupStatePlanned     = "planned"
+	SetupStateConnected   = "connected"
+	SetupStateUnreachable = "unreachable"
+	SetupStateDisabled    = "disabled"
+
+	NodeModePlanned = "planned"
+	NodeModeAdopt   = "adopt"
+)
+
 type Node struct {
 	ID                   string
 	NodeID               string
@@ -11,6 +21,7 @@ type Node struct {
 	ProtocolType         string
 	NodeSecret           string
 	Enabled              bool
+	SetupState           string
 	DesiredConfigVersion int64
 	LastAppliedVersion   int64
 	LastSeenAt           *time.Time
@@ -22,6 +33,7 @@ type Node struct {
 }
 
 type CreateNodeInput struct {
+	Mode         string `json:"mode"`
 	NodeID       string `json:"node_id"`
 	Name         string `json:"name"`
 	Domain       string `json:"domain"`
@@ -73,4 +85,16 @@ type AgentResponse struct {
 	Changed         bool   `json:"changed,omitempty"`
 	Message         string `json:"message,omitempty"`
 	Error           string `json:"error,omitempty"`
+}
+
+type AgentStatusResponse struct {
+	OK             bool    `json:"ok"`
+	NodeID         string  `json:"node_id,omitempty"`
+	ProtocolType   string  `json:"protocol_type,omitempty"`
+	CurrentVersion int64   `json:"current_version,omitempty"`
+	AppliedVersion int64   `json:"applied_version,omitempty"`
+	LastError      *string `json:"last_error,omitempty"`
+	UsersCached    int     `json:"users_cached,omitempty"`
+	Message        string  `json:"message,omitempty"`
+	Error          string  `json:"error,omitempty"`
 }

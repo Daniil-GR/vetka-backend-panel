@@ -110,4 +110,12 @@ $$ language plpgsql;
 create trigger node_protocol_change_guard before update on nodes for each row execute function prevent_node_protocol_change_with_access();
 `,
 	},
+	{
+		Version: "002_node_setup_state",
+		SQL: `
+alter table nodes
+  add column if not exists setup_state text not null default 'planned'
+  check (setup_state in ('planned', 'connected', 'unreachable', 'disabled'));
+`,
+	},
 }

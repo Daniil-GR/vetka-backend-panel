@@ -5,8 +5,6 @@ services:
       POSTGRES_USER: vetka
       POSTGRES_PASSWORD: vetka
       POSTGRES_DB: vetka_backend
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

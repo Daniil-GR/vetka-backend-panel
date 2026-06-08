@@ -36,6 +36,18 @@ func (c *AgentClient) Status(ctx context.Context, node Node) (AgentCallResult, e
 	return c.do(ctx, node, http.MethodGet, "/status", nil)
 }
 
+func (c *AgentClient) StatusInfo(ctx context.Context, node Node) (AgentStatusResponse, AgentCallResult, error) {
+	result, err := c.Status(ctx, node)
+	if err != nil {
+		return AgentStatusResponse{}, result, err
+	}
+	var status AgentStatusResponse
+	if err := json.Unmarshal(result.Body, &status); err != nil {
+		return AgentStatusResponse{}, result, fmt.Errorf("decode /status response: %w", err)
+	}
+	return status, result, nil
+}
+
 func (c *AgentClient) Stats(ctx context.Context, node Node) (AgentCallResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

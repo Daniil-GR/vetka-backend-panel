@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Edit Node</title>
+</head>
+<body>
+  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
+  <main>
+    <div class="toolbar"><h1>Edit Node</h1><a class="button secondary" href="/nodes">Back</a></div>
+    {{if .Flash}}<div class="flash {{.FlashLevel}}">{{.Flash}}</div>{{end}}
+    <section class="panel">
+      <p class="hint">Current setup state: <strong>{{.Node.SetupState}}</strong></p>
+      <form method="post" action="/nodes/{{.Node.ID}}" class="grid-form">
+        <label>Name <input name="name" value="{{.Node.Name}}" required></label>
+        <label>Node ID <input name="node_id" value="{{.Node.NodeID}}" required></label>
+        <label>Domain <input name="domain" value="{{.Node.Domain}}" required></label>
+        <label>API URL <input name="api_url" value="{{.Node.APIURL}}"></label>
+        <label>Protocol <select name="protocol_type"><option value="naive" {{if eq .Node.ProtocolType "naive"}}selected{{end}}>naive</option><option value="mieru" {{if eq .Node.ProtocolType "mieru"}}selected{{end}}>mieru</option></select></label>
+        <label>Node secret <input name="node_secret" placeholder="keep current when empty"></label>
+        <label>Enabled <select name="enabled"><option value="true" {{if .Node.Enabled}}selected{{end}}>true</option><option value="false" {{if not .Node.Enabled}}selected{{end}}>false</option></select></label>
+        <button type="submit">Save</button>
+      </form>
+      <form method="post" action="/nodes/{{.Node.ID}}/validate-status" class="inline-form">
+        <button type="submit">Validate /status</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

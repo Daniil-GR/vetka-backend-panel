@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -57,59 +58,127 @@ func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	h.render(w, "nodes.html", map[string]any{"Title": "Nodes", "Nodes": list, "BackendIP": h.cfg.BackendPublicIP, "DefaultPort": h.cfg.NodeAgentDefaultPort})
+	h.render(w, "nodes.html", map[string]any{
+		"Title":       "Nodes",
+		"Nodes":       list,
+		"BackendIP":   h.cfg.BackendPublicIP,
+		"DefaultPort": h.cfg.NodeAgentDefaultPort,
+		"Flash":       r.URL.Query().Get("flash"),
+		"FlashLevel":  r.URL.Query().Get("level"),
+	})
 }
 
 func (h *Handler) CreateNode(w http.ResponseWriter, r *http.Request) {
 	in := nodeInputFromForm(r)
 	node, err := h.nodeManager.CreateNode(r.Context(), in)
-	if h.handleErr(w, err) {
+	if err != nil {
+		h.redirectWithFlash(w, r, "/nodes", err.Error(), "error")
+		return
+	}
+	if in.Mode == nodes.NodeModeAdopt {
+		h.redirectWithFlash(w, r, "/nodes", "Existing node adopted and connected", "success")
 		return
 	}
 	h.render(w, "node_created.html", map[string]any{"Title": "Node created", "Node": node, "BackendIP": h.cfg.BackendPublicIP, "DefaultPort": h.cfg.NodeAgentDefaultPort})
 }
 
-func (h *Handler) UpdateNode(w http.ResponseWriter, r *http.Request) {
-	_, err := h.nodeManager.UpdateNode(r.Context(), chi.URLParam(r, "id"), nodeInputFromForm(r))
+func (h *Handler) EditNodePage(w http.ResponseWriter, r *http.Request) {
+	node, err := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
 	if h.handleErr(w, err) {
 		return
 	}
-	http.Redirect(w, r, "/nodes", http.StatusFound)
+	h.render(w, "node_edit.html", map[string]any{
+		"Title":      "Edit Node",
+		"Node":       node,
+		"Flash":      r.URL.Query().Get("flash"),
+		"FlashLevel": r.URL.Query().Get("level"),
+	})
 }
 
-func (h *Handler) UpdateNodeFromForm(w http.ResponseWriter, r *http.Request) {
-	_, err := h.nodeManager.UpdateNode(r.Context(), r.FormValue("id"), nodeInputFromForm(r))
-	if h.handleErr(w, err) {
+func (h *Handler) ValidateNodeStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := h.nodeManager.ValidateNodeStatus(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", "Validation failed: "+err.Error(), "error")
 		return
 	}
-	http.Redirect(w, r, "/nodes", http.StatusFound)
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", formatNodeStatusFlash(status), "success")
+}
+
+func (h *Handler) UpdateNode(w http.ResponseWriter, r *http.Request) {
+	_, err := h.nodeManager.UpdateNode(r.Context(), chi.URLParam(r, "id"), nodeInputFromForm(r))
+	if err != nil {
+		h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", err.Error(), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/nodes", "Node updated", "success")
 }
 
 func (h *Handler) DeleteNode(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, h.nodeManager.DeleteNode(r.Context(), chi.URLParam(r, "id"))) {
 		return
 	}
-	http.Redirect(w, r, "/nodes", http.StatusFound)
+	h.redirectWithFlash(w, r, "/nodes", "Node deleted", "success")
 }
 
 func (h *Handler) NodeHealth(w http.ResponseWriter, r *http.Request) {
-	result, err := h.nodeManager.CheckNodeHealth(r.Context(), chi.URLParam(r, "id"))
-	h.actionResult(w, r, result.Body, err)
+	node, getErr := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
+	if getErr != nil {
+		h.redirectWithFlash(w, r, "/nodes", getErr.Error(), "error")
+		return
+	}
+	if _, err := h.nodeManager.CheckNodeHealth(r.Context(), chi.URLParam(r, "id")); err != nil {
+		message := "Health failed: " + err.Error()
+		if node.SetupState == nodes.SetupStatePlanned {
+			message = "Node is not reachable yet"
+		}
+		h.redirectWithFlash(w, r, "/nodes", message, "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/nodes", "Health OK", "success")
 }
 
 func (h *Handler) NodeStatus(w http.ResponseWriter, r *http.Request) {
-	result, err := h.nodeManager.FetchNodeStatus(r.Context(), chi.URLParam(r, "id"))
-	h.actionResult(w, r, result.Body, err)
+	node, getErr := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
+	if getErr != nil {
+		h.redirectWithFlash(w, r, "/nodes", getErr.Error(), "error")
+		return
+	}
+	status, err := h.nodeManager.FetchNodeStatus(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		message := "Status failed: " + err.Error()
+		if node.SetupState == nodes.SetupStatePlanned {
+			message = "Node is not reachable yet"
+		}
+		h.redirectWithFlash(w, r, "/nodes", message, "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/nodes", formatNodeStatusFlash(status), "success")
 }
 
 func (h *Handler) SyncNode(w http.ResponseWriter, r *http.Request) {
-	err := h.nodeManager.SyncNode(r.Context(), chi.URLParam(r, "id"))
-	h.actionResult(w, r, []byte("sync completed"), err)
+	node, getErr := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
+	if getErr != nil {
+		h.redirectWithFlash(w, r, "/nodes", getErr.Error(), "error")
+		return
+	}
+	resp, err := h.nodeManager.SyncNode(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		message := "Sync failed: " + err.Error()
+		if node.SetupState == nodes.SetupStatePlanned {
+			message = "Node is not reachable yet"
+		}
+		h.redirectWithFlash(w, r, "/nodes", message, "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/nodes", formatSyncFlash(resp), "success")
 }
 
 func (h *Handler) SyncAllNodes(w http.ResponseWriter, r *http.Request) {
-	err := h.nodeManager.SyncAllNodes(r.Context())
-	h.actionResult(w, r, []byte("sync all completed"), err)
+	if err := h.nodeManager.SyncAllNodes(r.Context()); err != nil {
+		h.redirectWithFlash(w, r, "/nodes", "Sync all failed: "+err.Error(), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/nodes", "Sync all OK", "success")
 }
 
 func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
@@ -329,6 +398,9 @@ func (h *Handler) APICreateNode(w http.ResponseWriter, r *http.Request) {
 	if decodeJSON(w, r, &in) {
 		return
 	}
+	if in.Mode == "" {
+		in.Mode = nodes.NodeModePlanned
+	}
 	node, err := h.nodeManager.CreateNode(r.Context(), in)
 	if err != nil {
 		writeJSONOrError(w, http.StatusBadRequest, nil, err)
@@ -360,21 +432,30 @@ func (h *Handler) APIUpdateNode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) APINodeHealth(w http.ResponseWriter, r *http.Request) {
-	result, err := h.nodeManager.CheckNodeHealth(r.Context(), chi.URLParam(r, "id"))
-	writeAgentCallResult(w, result, err)
-}
-
-func (h *Handler) APINodeStatus(w http.ResponseWriter, r *http.Request) {
-	result, err := h.nodeManager.FetchNodeStatus(r.Context(), chi.URLParam(r, "id"))
-	writeAgentCallResult(w, result, err)
-}
-
-func (h *Handler) APISyncNode(w http.ResponseWriter, r *http.Request) {
-	if err := h.nodeManager.SyncNode(r.Context(), chi.URLParam(r, "id")); err != nil {
+	status, err := h.nodeManager.CheckNodeHealth(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *Handler) APINodeStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := h.nodeManager.FetchNodeStatus(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *Handler) APISyncNode(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.nodeManager.SyncNode(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) APISyncAllNodes(w http.ResponseWriter, r *http.Request) {
@@ -401,21 +482,9 @@ func (h *Handler) handleErr(w http.ResponseWriter, err error) bool {
 	return true
 }
 
-func (h *Handler) actionResult(w http.ResponseWriter, r *http.Request, body []byte, err error) {
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	if len(body) > 0 && r.Header.Get("Accept") == "application/json" {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(body)
-		return
-	}
-	http.Redirect(w, r, "/nodes", http.StatusFound)
-}
-
 func nodeInputFromForm(r *http.Request) nodes.CreateNodeInput {
 	return nodes.CreateNodeInput{
+		Mode:         r.FormValue("mode"),
 		NodeID:       r.FormValue("node_id"),
 		Name:         r.FormValue("name"),
 		Domain:       r.FormValue("domain"),
@@ -492,6 +561,13 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+func (h *Handler) redirectWithFlash(w http.ResponseWriter, r *http.Request, path, message, level string) {
+	values := url.Values{}
+	values.Set("flash", message)
+	values.Set("level", level)
+	http.Redirect(w, r, path+"?"+values.Encode(), http.StatusFound)
+}
+
 func (h *Handler) syncUserAssignments(ctx context.Context, userID string) ([]string, error) {
 	access, err := h.userRepo.AccessForUser(ctx, userID)
 	if err != nil {
@@ -499,7 +575,7 @@ func (h *Handler) syncUserAssignments(ctx context.Context, userID string) ([]str
 	}
 	errs := make([]string, 0)
 	for _, a := range access {
-		if err := h.nodeManager.SyncNode(ctx, a.NodeID); err != nil {
+		if _, err := h.nodeManager.SyncNode(ctx, a.NodeID); err != nil {
 			errs = append(errs, a.NodeID+": "+err.Error())
 		}
 	}
@@ -515,6 +591,7 @@ type nodeResponse struct {
 	ProtocolType         string     `json:"protocol_type"`
 	NodeSecret           string     `json:"node_secret"`
 	Enabled              bool       `json:"enabled"`
+	SetupState           string     `json:"setup_state"`
 	DesiredConfigVersion int64      `json:"desired_config_version"`
 	LastAppliedVersion   int64      `json:"last_applied_version"`
 	LastSeenAt           *time.Time `json:"last_seen_at,omitempty"`
@@ -539,6 +616,7 @@ func newNodeResponse(node nodes.Node, exposeRawSecret bool) nodeResponse {
 		ProtocolType:         node.ProtocolType,
 		NodeSecret:           secret,
 		Enabled:              node.Enabled,
+		SetupState:           node.SetupState,
 		DesiredConfigVersion: node.DesiredConfigVersion,
 		LastAppliedVersion:   node.LastAppliedVersion,
 		LastSeenAt:           node.LastSeenAt,
@@ -550,16 +628,12 @@ func newNodeResponse(node nodes.Node, exposeRawSecret bool) nodeResponse {
 	}
 }
 
-func writeAgentCallResult(w http.ResponseWriter, result nodes.AgentCallResult, err error) {
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error(), "status_code": result.StatusCode})
-		return
-	}
-	if len(result.Body) > 0 && json.Valid(result.Body) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(result.Body)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status_code": result.StatusCode, "body": string(result.Body)})
+func formatNodeStatusFlash(status nodes.AgentStatusResponse) string {
+	return "Status OK: current_version=" + strconv.FormatInt(status.CurrentVersion, 10) +
+		", applied_version=" + strconv.FormatInt(status.AppliedVersion, 10) +
+		", users_cached=" + strconv.Itoa(status.UsersCached)
+}
+
+func formatSyncFlash(resp nodes.AgentResponse) string {
+	return "Sync OK: applied_version=" + strconv.FormatInt(resp.AppliedVersion, 10)
 }

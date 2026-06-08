@@ -43,6 +43,8 @@ The UI listens on `http://localhost:8080` by default. Login uses `ADMIN_USERNAME
 Authorization: Bearer <ADMIN_API_TOKEN>
 ```
 
+The default `docker-compose.yml` keeps PostgreSQL on the internal Docker network only. Do not publish PostgreSQL publicly from the default stack. If local direct access is needed for development, use a separate override file with a loopback-only PostgreSQL port binding rather than a public bind.
+
 ## Migrations
 
 Migrations are applied automatically on server startup. You can also run:
@@ -55,7 +57,25 @@ The SQL source for the first migration is in `migrations/001_initial.up.sql`; th
 
 ## Creating The First Node
 
-Open `/nodes`, fill `name`, `domain`, `api_url`, and `protocol_type`. If `node_id` or `node_secret` is empty, the Backend Panel generates them.
+Open `/nodes` and choose one of the two node lifecycle paths.
+
+### Create Planned Node
+
+Use this when the server does not have `vetka-node-agent` installed yet.
+
+- Backend generates `NODE_ID` and `NODE_SECRET` if they are missing.
+- Backend stores the node with `setup_state=planned`.
+- Backend does not call `/status` during creation.
+- The UI shows the install command for the future node.
+
+### Adopt Existing Node
+
+Use this when `vetka-node-agent` is already installed and reachable.
+
+- Backend requires `node_id`, `node_secret`, `api_url`, and `protocol_type`.
+- Backend calls `/status` and validates `node_id` and `protocol_type`.
+- Backend bootstraps `desired_config_version` and `last_applied_version` from the remote node.
+- The node is stored as `setup_state=connected`.
 
 After creation the UI shows install environment values for the separate Node Agent:
 
@@ -81,6 +101,19 @@ X-Node-Id: <NODE_ID>
 ```
 
 No per-user create/delete commands are sent to nodes. On sync success the panel updates `last_applied_version`; on failure it records `last_error` and a row in `node_sync_events`.
+
+When onboarding an existing node, the Backend Panel first reads `/status` and aligns local `desired_config_version` and `last_applied_version` with the remote node before sending the next sync. If a sync hits `stale_version`, the panel refreshes the remote version and retries once with the next version number.
+
+## Node Lifecycle
+
+Node setup states:
+
+- `planned`: backend metadata exists, but the node may not be installed or reachable yet.
+- `connected`: backend successfully validated or synced the node.
+- `unreachable`: backend could not reach the node during sync.
+- `disabled`: node is intentionally disabled in the backend.
+
+For a planned node, `Health`, `Status`, or `Sync` can promote it to `connected` once the agent becomes reachable and `/status` succeeds.
 
 ## Users And Subscriptions
 
@@ -126,6 +159,10 @@ Telegram Bot and payment logic are not part of this repository.
 ## Security Notes
 
 `node_secret` is stored in PostgreSQL for the MVP. The UI masks it after creation and API responses should avoid exposing raw secrets outside trusted admin flows.
+
+PostgreSQL should not be publicly reachable. Node Agent port `2222` should be open only for the Backend Panel IP.
+
+If `NODE_SECRET` is exposed, rotate it and update the backend record before the next sync.
 
 TODO: add encryption at rest for node secrets using `APP_SECRET`.
 

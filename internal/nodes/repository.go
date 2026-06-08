@@ -22,7 +22,7 @@ func (r *Repository) Count(ctx context.Context) (total, online int, err error) {
 }
 
 func (r *Repository) List(ctx context.Context) ([]Node, error) {
-	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes order by created_at desc`)
+	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes order by created_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +31,7 @@ func (r *Repository) List(ctx context.Context) ([]Node, error) {
 }
 
 func (r *Repository) Get(ctx context.Context, id string) (Node, error) {
-	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes where id=$1`, id)
+	rows, err := r.pool.Query(ctx, `select id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at from nodes where id=$1`, id)
 	if err != nil {
 		return Node{}, err
 	}
@@ -40,8 +40,15 @@ func (r *Repository) Get(ctx context.Context, id string) (Node, error) {
 }
 
 func (r *Repository) Create(ctx context.Context, in CreateNodeInput) (Node, error) {
-	rows, err := r.pool.Query(ctx, `insert into nodes(node_id, name, domain, api_url, protocol_type, node_secret, enabled) values($1,$2,$3,$4,$5,$6,$7) returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
-		in.NodeID, in.Name, in.Domain, in.APIURL, strings.ToLower(in.ProtocolType), in.NodeSecret, in.Enabled)
+	setupState := SetupStatePlanned
+	if in.Mode == NodeModeAdopt {
+		setupState = SetupStateConnected
+	}
+	if !in.Enabled {
+		setupState = SetupStateDisabled
+	}
+	rows, err := r.pool.Query(ctx, `insert into nodes(node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state) values($1,$2,$3,$4,$5,$6,$7,$8) returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
+		in.NodeID, in.Name, in.Domain, in.APIURL, strings.ToLower(in.ProtocolType), in.NodeSecret, in.Enabled, setupState)
 	if err != nil {
 		return Node{}, err
 	}
@@ -50,13 +57,28 @@ func (r *Repository) Create(ctx context.Context, in CreateNodeInput) (Node, erro
 }
 
 func (r *Repository) Update(ctx context.Context, id string, in UpdateNodeInput) (Node, error) {
-	rows, err := r.pool.Query(ctx, `update nodes set node_id=$2, name=$3, domain=$4, api_url=$5, protocol_type=$6, node_secret=$7, enabled=$8 where id=$1 returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
+	rows, err := r.pool.Query(ctx, `update nodes set node_id=$2, name=$3, domain=$4, api_url=$5, protocol_type=$6, node_secret=$7, enabled=$8, setup_state=case when $8=false then 'disabled' when setup_state='disabled' then 'planned' else setup_state end where id=$1 returning id, node_id, name, domain, api_url, protocol_type, node_secret, enabled, setup_state, desired_config_version, last_applied_version, last_seen_at, last_status, last_error, last_sync_at, created_at, updated_at`,
 		id, in.NodeID, in.Name, in.Domain, in.APIURL, strings.ToLower(in.ProtocolType), in.NodeSecret, in.Enabled)
 	if err != nil {
 		return Node{}, err
 	}
 	defer rows.Close()
 	return pgx.CollectOneRow(rows, scanNode)
+}
+
+func (r *Repository) SyncRemoteState(ctx context.Context, id string, currentVersion, appliedVersion int64, lastError *string) error {
+	if appliedVersion <= 0 {
+		appliedVersion = currentVersion
+	}
+	_, err := r.pool.Exec(ctx, `update nodes
+set desired_config_version = greatest(desired_config_version, $2),
+    last_applied_version = greatest(last_applied_version, $3),
+    last_seen_at = now(),
+    last_status = 'ok',
+    last_error = $4,
+    setup_state = 'connected'
+where id = $1`, id, currentVersion, appliedVersion, lastError)
+	return err
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
@@ -71,17 +93,17 @@ func (r *Repository) BumpVersion(ctx context.Context, id string) (int64, error) 
 }
 
 func (r *Repository) MarkStatus(ctx context.Context, id, status string, errText *string) error {
-	_, err := r.pool.Exec(ctx, `update nodes set last_status=$2, last_error=$3, last_seen_at=now() where id=$1`, id, status, errText)
+	_, err := r.pool.Exec(ctx, `update nodes set last_status=$2, last_error=$3, last_seen_at=now(), setup_state=case when $2='ok' then 'connected' else setup_state end where id=$1`, id, status, errText)
 	return err
 }
 
 func (r *Repository) MarkSyncSuccess(ctx context.Context, id string, version int64) error {
-	_, err := r.pool.Exec(ctx, `update nodes set last_applied_version=$2, last_sync_at=now(), last_error=null, last_status='ok', last_seen_at=now() where id=$1`, id, version)
+	_, err := r.pool.Exec(ctx, `update nodes set last_applied_version=$2, last_sync_at=now(), last_error=null, last_status='ok', last_seen_at=now(), setup_state='connected' where id=$1`, id, version)
 	return err
 }
 
 func (r *Repository) MarkSyncFailure(ctx context.Context, id, status, message string) error {
-	_, err := r.pool.Exec(ctx, `update nodes set last_error=$3, last_status=$2, last_seen_at=now() where id=$1`, id, status, message)
+	_, err := r.pool.Exec(ctx, `update nodes set last_error=$3, last_status=$2, last_seen_at=now(), setup_state=case when $2='http_error' then 'unreachable' else setup_state end where id=$1`, id, status, message)
 	return err
 }
 
@@ -105,6 +127,6 @@ func (r *Repository) RecentEvents(ctx context.Context, limit int) ([]SyncEvent, 
 
 func scanNode(row pgx.CollectableRow) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.NodeID, &n.Name, &n.Domain, &n.APIURL, &n.ProtocolType, &n.NodeSecret, &n.Enabled, &n.DesiredConfigVersion, &n.LastAppliedVersion, &n.LastSeenAt, &n.LastStatus, &n.LastError, &n.LastSyncAt, &n.CreatedAt, &n.UpdatedAt)
+	err := row.Scan(&n.ID, &n.NodeID, &n.Name, &n.Domain, &n.APIURL, &n.ProtocolType, &n.NodeSecret, &n.Enabled, &n.SetupState, &n.DesiredConfigVersion, &n.LastAppliedVersion, &n.LastSeenAt, &n.LastStatus, &n.LastError, &n.LastSyncAt, &n.CreatedAt, &n.UpdatedAt)
 	return n, err
 }

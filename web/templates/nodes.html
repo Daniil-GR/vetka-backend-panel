@@ -10,53 +10,60 @@
   <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
   <main>
     <div class="toolbar"><h1>Nodes</h1><form method="post" action="/nodes/sync-all"><button>Sync all</button></form></div>
+    {{if .Flash}}<div class="flash {{.FlashLevel}}">{{.Flash}}</div>{{end}}
     <section class="panel">
-      <h2>Create Node</h2>
+      <h2>Create Planned Node</h2>
       <form method="post" action="/nodes" class="grid-form">
+        <input type="hidden" name="mode" value="planned">
         <label>Name <input name="name" required></label>
         <label>Node ID <input name="node_id" placeholder="generated when empty"></label>
         <label>Domain <input name="domain" required></label>
-        <label>API URL <input name="api_url" placeholder="http://host:2222"></label>
+        <label>API URL <input name="api_url" placeholder="optional until agent install"></label>
         <label>Protocol <select name="protocol_type"><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
         <label>Node secret <input name="node_secret" placeholder="generated when empty"></label>
         <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
-        <button type="submit">Create</button>
+        <button type="submit">Create planned node</button>
       </form>
+      <p class="hint">Use this before the server has `vetka-node-agent` installed. The panel will generate `NODE_ID`, `NODE_SECRET`, and the install command without calling `/status`.</p>
     </section>
     <section class="panel">
-      <h2>Edit Node</h2>
-      <form method="post" action="/nodes/update" class="grid-form">
-        <label>Node <select name="id">{{range .Nodes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select></label>
+      <h2>Adopt Existing Node</h2>
+      <form method="post" action="/nodes" class="grid-form">
+        <input type="hidden" name="mode" value="adopt">
         <label>Name <input name="name" required></label>
         <label>Node ID <input name="node_id" required></label>
         <label>Domain <input name="domain" required></label>
-        <label>API URL <input name="api_url" required></label>
+        <label>API URL <input name="api_url" placeholder="http://host:2222" required></label>
         <label>Protocol <select name="protocol_type"><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
-        <label>Node secret <input name="node_secret" placeholder="keep current when empty"></label>
-        <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
-        <button type="submit">Save</button>
+        <label>Node secret <input name="node_secret" required></label>
+        <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
+        <button type="submit">Adopt existing node</button>
       </form>
+      <p class="hint">Use this when `vetka-node-agent` is already installed. The panel validates `/status`, checks `node_id` and `protocol_type`, then bootstraps versions from the remote node.</p>
     </section>
     <table>
-      <thead><tr><th>Name</th><th>Node ID</th><th>Protocol</th><th>API</th><th>Secret</th><th>Versions</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Name</th><th>Node ID</th><th>Protocol</th><th>Setup</th><th>API</th><th>Secret</th><th>Versions</th><th>Status</th><th>Last seen</th><th>Actions</th></tr></thead>
       <tbody>
         {{range .Nodes}}
         <tr>
           <td>{{.Name}}<br><small>{{.Domain}}</small></td>
           <td>{{.NodeID}}</td>
           <td>{{.ProtocolType}}</td>
+          <td>{{.SetupState}}</td>
           <td>{{.APIURL}}</td>
           <td>{{mask .NodeSecret}}</td>
           <td>{{.LastAppliedVersion}} / {{.DesiredConfigVersion}}</td>
           <td>{{if .LastStatus}}{{.LastStatus}}{{else}}unknown{{end}}<br><small>{{if .LastError}}{{.LastError}}{{end}}</small></td>
+          <td>{{formatTime .LastSeenAt}}</td>
           <td class="actions">
+            <a class="button" href="/nodes/{{.ID}}/edit">Edit</a>
             <form method="post" action="/nodes/{{.ID}}/health"><button>Health</button></form>
             <form method="post" action="/nodes/{{.ID}}/status"><button>Status</button></form>
             <form method="post" action="/nodes/{{.ID}}/sync"><button>Sync</button></form>
             <form method="post" action="/nodes/{{.ID}}/delete"><button class="danger">Delete</button></form>
           </td>
         </tr>
-        {{else}}<tr><td colspan="8">No nodes yet.</td></tr>{{end}}
+        {{else}}<tr><td colspan="10">No nodes yet.</td></tr>{{end}}
       </tbody>
     </table>
   </main>
