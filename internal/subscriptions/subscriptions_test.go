@@ -193,6 +193,73 @@ func TestBuildSubscriptionRawFormats(t *testing.T) {
 	if strings.Contains(hiddifyBody, "\"outbounds\"") {
 		t.Fatalf("hiddify output should not contain json: %s", hiddifyBody)
 	}
+	if strings.Contains(strings.ToLower(hiddifyBody), "todo") {
+		t.Fatalf("hiddify output contains placeholder text: %s", hiddifyBody)
+	}
+}
+
+func TestBuildSubscriptionHiddifyJSON(t *testing.T) {
+	body, contentType, err := BuildSubscription(testAssignments(), "hiddify-json", false)
+	if err != nil {
+		t.Fatalf("hiddify-json build error: %v", err)
+	}
+	if contentType != "application/json; charset=utf-8" {
+		t.Fatalf("unexpected hiddify-json content type: %s", contentType)
+	}
+	if strings.Contains(strings.ToLower(body), "todo") {
+		t.Fatalf("hiddify-json contains placeholder text: %s", body)
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(body), &cfg); err != nil {
+		t.Fatalf("invalid hiddify-json: %v", err)
+	}
+	outbounds, ok := cfg["outbounds"].([]any)
+	if !ok || len(outbounds) < 2 {
+		t.Fatalf("hiddify-json outbounds missing: %#v", cfg["outbounds"])
+	}
+	var foundMieru, foundNaive bool
+	for _, item := range outbounds {
+		ob := item.(map[string]any)
+		switch ob["type"] {
+		case "mieru":
+			foundMieru = true
+			if ob["server_port"] != float64(0) {
+				t.Fatalf("unexpected mieru server_port: %#v", ob["server_port"])
+			}
+			if _, hasTransport := ob["transport"]; hasTransport {
+				t.Fatalf("hiddify-json mieru must not contain transport: %#v", ob)
+			}
+			bindings, ok := ob["portBindings"].([]any)
+			if !ok || len(bindings) == 0 {
+				t.Fatalf("hiddify-json mieru missing portBindings: %#v", ob)
+			}
+		case "naive":
+			foundNaive = true
+			if ob["server"] != "alps.vetka.tech" || ob["server_port"] != float64(443) {
+				t.Fatalf("unexpected naive outbound: %#v", ob)
+			}
+			if ob["username"] != "easewa" || ob["password"] != "as3231e2" {
+				t.Fatalf("missing naive credentials: %#v", ob)
+			}
+			if ob["udp_over_tcp"] != false {
+				t.Fatalf("expected udp_over_tcp=false: %#v", ob)
+			}
+			tlsCfg := ob["tls"].(map[string]any)
+			if tlsCfg["enabled"] != true {
+				t.Fatalf("expected tls.enabled=true: %#v", tlsCfg)
+			}
+			if _, hasServerName := tlsCfg["server_name"]; hasServerName {
+				t.Fatalf("hiddify-json naive should not contain tls.server_name: %#v", tlsCfg)
+			}
+			if _, hasQuic := ob["quic"]; hasQuic {
+				t.Fatalf("hiddify-json naive should not contain quic: %#v", ob)
+			}
+		}
+	}
+	if !foundMieru || !foundNaive {
+		t.Fatalf("missing expected hiddify-json outbounds: mieru=%v naive=%v", foundMieru, foundNaive)
+	}
 }
 
 func TestContentDispositionFilename(t *testing.T) {

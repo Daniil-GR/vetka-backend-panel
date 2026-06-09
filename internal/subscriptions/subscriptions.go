@@ -15,14 +15,15 @@ import (
 )
 
 const (
-	FormatDefault = ""
-	FormatJSON    = "json"
-	FormatKaring  = "karing"
-	FormatSingBox = "sing-box"
-	FormatHiddify = "hiddify"
-	FormatRaw     = "raw"
-	FormatMierus  = "mierus"
-	FormatNaive   = "naive"
+	FormatDefault     = ""
+	FormatJSON        = "json"
+	FormatKaring      = "karing"
+	FormatSingBox     = "sing-box"
+	FormatHiddify     = "hiddify"
+	FormatHiddifyJSON = "hiddify-json"
+	FormatRaw         = "raw"
+	FormatMierus      = "mierus"
+	FormatNaive       = "naive"
 
 	DefaultProfileTitle        = "Ветка VPN"
 	DefaultUpdateIntervalHours = 12
@@ -84,6 +85,9 @@ func BuildSubscriptionWithMetadata(assignments []users.AccessWithNode, format st
 	case FormatHiddify:
 		body, err := buildHiddifyAll(assignments, devMode, profileTitle)
 		return body, "text/plain; charset=utf-8", err
+	case FormatHiddifyJSON:
+		body, err := BuildHiddifyJSON(assignments)
+		return body, "application/json; charset=utf-8", err
 	case FormatMierus:
 		body, err := buildRawMieru(assignments, devMode)
 		return body, "text/plain; charset=utf-8", err
@@ -275,6 +279,77 @@ func BuildSingboxJSON(assignments []users.AccessWithNode) (string, error) {
 	return string(data), nil
 }
 
+func BuildHiddifyJSON(assignments []users.AccessWithNode) (string, error) {
+	type portBinding struct {
+		Protocol  string `json:"protocol"`
+		PortRange string `json:"portRange"`
+	}
+	type tlsOptions struct {
+		Enabled bool `json:"enabled"`
+	}
+	type outbound struct {
+		Type         string        `json:"type"`
+		Tag          string        `json:"tag"`
+		Server       string        `json:"server"`
+		ServerPort   int           `json:"server_port"`
+		PortBindings []portBinding `json:"portBindings,omitempty"`
+		Username     string        `json:"username"`
+		Password     string        `json:"password"`
+		Multiplexing string        `json:"multiplexing,omitempty"`
+		UDPOverTCP   *bool         `json:"udp_over_tcp,omitempty"`
+		TLS          *tlsOptions   `json:"tls,omitempty"`
+	}
+	type config struct {
+		Outbounds []outbound `json:"outbounds"`
+	}
+
+	cfg := config{Outbounds: make([]outbound, 0, len(assignments))}
+	for i, assignment := range assignments {
+		tag := fmt.Sprintf("%s § %d", assignment.NodeName, i)
+		switch assignment.NodeProtocolType {
+		case "mieru":
+			settings := protocolSettingsForAccess(assignment)
+			bindings := make([]portBinding, 0, len(settings.Mieru.Ports))
+			for _, portRange := range settings.Mieru.Ports {
+				bindings = append(bindings, portBinding{
+					Protocol:  defaultString(settings.Mieru.Protocol, "TCP"),
+					PortRange: portRange,
+				})
+			}
+			cfg.Outbounds = append(cfg.Outbounds, outbound{
+				Type:         "mieru",
+				Tag:          tag,
+				Server:       nodeServer(assignment),
+				ServerPort:   0,
+				PortBindings: bindings,
+				Username:     assignment.ProtocolUsername,
+				Password:     assignment.ProtocolPassword,
+				Multiplexing: defaultString(settings.Mieru.Multiplexing, "MULTIPLEXING_HIGH"),
+			})
+		case "naive":
+			settings := protocolSettingsForAccess(assignment)
+			udpOverTCP := false
+			cfg.Outbounds = append(cfg.Outbounds, outbound{
+				Type:       "naive",
+				Tag:        tag,
+				Server:     nodeServer(assignment),
+				ServerPort: settings.Naive.Port,
+				Username:   assignment.ProtocolUsername,
+				Password:   assignment.ProtocolPassword,
+				UDPOverTCP: &udpOverTCP,
+				TLS: &tlsOptions{
+					Enabled: true,
+				},
+			})
+		}
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func buildRawAll(assignments []users.AccessWithNode, devMode bool, profileTitle string, updateIntervalHours int) (string, error) {
 	lines := []string{
 		"//profile-title: base64:" + ProfileTitleBase64(profileTitle),
@@ -341,6 +416,8 @@ func normalizeFormat(format string) string {
 		return FormatJSON
 	case FormatHiddify:
 		return FormatHiddify
+	case FormatHiddifyJSON:
+		return FormatHiddifyJSON
 	case FormatRaw:
 		return FormatRaw
 	case FormatMierus:
@@ -354,7 +431,7 @@ func normalizeFormat(format string) string {
 
 func ContentDispositionFilename(format string) string {
 	switch normalizeFormat(format) {
-	case FormatJSON, FormatKaring, FormatSingBox:
+	case FormatJSON, FormatKaring, FormatSingBox, FormatHiddifyJSON:
 		return "vetka-vpn.json"
 	default:
 		return "vetka-vpn.txt"

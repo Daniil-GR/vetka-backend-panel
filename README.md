@@ -161,6 +161,7 @@ Hiddify-oriented plain-text formats are also available:
 
 ```text
 /sub/<token>?format=hiddify
+/sub/<token>?format=hiddify-json
 /sub/<token>?format=raw
 /sub/<token>?format=mierus
 /sub/<token>?format=naive
@@ -175,7 +176,11 @@ JSON subscriptions include a selector outbound tagged `proxy`, protocol-specific
 - Mieru nodes as `mierus://...`
 - Naive nodes as `naive://...`
 
+`format=hiddify-json` is an experimental Hiddify-style JSON export based on Hiddify's internal export shape. Use it only for testing and comparison.
+
 `format=mierus` is kept as a backward-compatible Mieru-only alias. `format=naive` returns Naive-only links. `format=raw` is a diagnostic format and may include both `naive://` and legacy `naive+https://`.
+
+Naive in Hiddify depends on the platform and build. Android may work; iOS may fail with `cronet: library not found`. Karing works with Naive through the default JSON format.
 
 All `/sub/*` responses include:
 

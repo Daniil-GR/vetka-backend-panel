@@ -24,6 +24,9 @@
       <p>Karing subscription: <code>{{.KaringSubscriptionURL}}</code></p>
       <p>Karing JSON: <code>{{.KaringJSONURL}}</code></p>
       <p>Hiddify subscription: <code>{{.HiddifySubscriptionURL}}</code></p>
+      <p class="hint">Plain Hiddify subscription with Mieru + Naive links. Naive works on some Hiddify builds/platforms; iOS may fail with "cronet: library not found".</p>
+      <p>Hiddify JSON experimental: <code>{{.HiddifyJSONURL}}</code></p>
+      <p class="hint">Experimental JSON based on Hiddify internal export format. Use only for testing.</p>
       {{if .HasMieruAccess}}<p>Hiddify Mieru only: <code>{{.HiddifyMierusURL}}</code></p>{{end}}
       {{if .HasNaiveAccess}}<p>Hiddify Naive only: <code>{{.HiddifyNaiveURL}}</code></p>{{end}}
       <p>Raw links: <code>{{.SubscriptionRawURL}}</code></p>
