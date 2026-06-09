@@ -138,15 +138,18 @@ func TestBuildSubscriptionJSON(t *testing.T) {
 }
 
 func TestBuildSubscriptionRawFormats(t *testing.T) {
-	rawBody, rawType, err := BuildSubscription(testAssignments(), "raw", false)
+	rawBody, rawType, err := BuildSubscriptionWithMetadata(testAssignments(), "raw", false, DefaultProfileTitle, DefaultUpdateIntervalHours)
 	if err != nil {
 		t.Fatalf("raw build error: %v", err)
 	}
 	if rawType != "text/plain; charset=utf-8" {
 		t.Fatalf("unexpected raw content type: %s", rawType)
 	}
-	if !strings.Contains(rawBody, "naive+https://") || !strings.Contains(rawBody, "mierus://") {
+	if !strings.Contains(rawBody, "naive+https://") || !strings.Contains(rawBody, "naive://") || !strings.Contains(rawBody, "mierus://") {
 		t.Fatalf("raw output missing expected links: %s", rawBody)
+	}
+	if !strings.Contains(rawBody, "//profile-title: base64:"+ProfileTitleBase64(DefaultProfileTitle)) {
+		t.Fatalf("raw output missing profile metadata: %s", rawBody)
 	}
 	if strings.Contains(strings.ToLower(rawBody), "todo") {
 		t.Fatalf("raw output contains placeholder text: %s", rawBody)
@@ -161,6 +164,49 @@ func TestBuildSubscriptionRawFormats(t *testing.T) {
 	}
 	if !strings.HasPrefix(mieruBody, "mierus://") {
 		t.Fatalf("expected mierus output, got %s", mieruBody)
+	}
+
+	naiveBody, naiveType, err := BuildSubscription(testAssignments(), "naive", false)
+	if err != nil {
+		t.Fatalf("naive build error: %v", err)
+	}
+	if naiveType != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected naive content type: %s", naiveType)
+	}
+	if !strings.HasPrefix(naiveBody, "naive://") {
+		t.Fatalf("expected naive output, got %s", naiveBody)
+	}
+	if strings.Contains(naiveBody, "mierus://") {
+		t.Fatalf("naive-only output should not contain mieru links: %s", naiveBody)
+	}
+
+	hiddifyBody, hiddifyType, err := BuildSubscriptionWithMetadata(testAssignments(), "hiddify", false, DefaultProfileTitle, DefaultUpdateIntervalHours)
+	if err != nil {
+		t.Fatalf("hiddify build error: %v", err)
+	}
+	if hiddifyType != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected hiddify content type: %s", hiddifyType)
+	}
+	if !strings.Contains(hiddifyBody, "mierus://") || !strings.Contains(hiddifyBody, "naive://") {
+		t.Fatalf("hiddify output missing expected links: %s", hiddifyBody)
+	}
+	if strings.Contains(hiddifyBody, "\"outbounds\"") {
+		t.Fatalf("hiddify output should not contain json: %s", hiddifyBody)
+	}
+}
+
+func TestContentDispositionFilename(t *testing.T) {
+	if got := ContentDispositionFilename("json"); got != "vetka-vpn.json" {
+		t.Fatalf("unexpected json filename: %s", got)
+	}
+	if got := ContentDispositionFilename("hiddify"); got != "vetka-vpn.txt" {
+		t.Fatalf("unexpected text filename: %s", got)
+	}
+}
+
+func TestProfileTitleBase64(t *testing.T) {
+	if got := ProfileTitleBase64(DefaultProfileTitle); got != "0JLQtdGC0LrQsCBWUE4=" {
+		t.Fatalf("unexpected profile title base64: %s", got)
 	}
 }
 

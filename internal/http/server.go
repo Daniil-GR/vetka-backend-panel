@@ -32,7 +32,7 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) http.
 	userRepo := users.NewRepository(pool)
 	nodeManager := nodes.NewManager(nodeRepo, userRepo, nodes.NewAgentClient())
 	userSvc := users.NewService(userRepo)
-	subSvc := subscriptions.NewService(userRepo, cfg.AppEnv == "dev")
+	subSvc := subscriptions.NewService(userRepo, cfg.AppEnv == "dev", cfg.SubscriptionProfileTitle, cfg.SubscriptionUpdateIntervalHours)
 	h := handlers.New(cfg, logger, tmpl, nodeRepo, nodeManager, userRepo, userSvc, subSvc)
 
 	r := chi.NewRouter()

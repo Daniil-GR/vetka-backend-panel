@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -18,17 +19,42 @@ const (
 	FormatJSON    = "json"
 	FormatKaring  = "karing"
 	FormatSingBox = "sing-box"
+	FormatHiddify = "hiddify"
 	FormatRaw     = "raw"
 	FormatMierus  = "mierus"
+	FormatNaive   = "naive"
+
+	DefaultProfileTitle        = "Ветка VPN"
+	DefaultUpdateIntervalHours = 12
+)
+
+var (
+	ErrSubscriptionDisabled     = fmt.Errorf("subscription disabled or expired")
+	ErrNoSupportedNodesAssigned = fmt.Errorf("no supported nodes assigned")
+	ErrNoMieruNodesAssigned     = fmt.Errorf("no mieru nodes assigned")
+	ErrNoNaiveNodesAssigned     = fmt.Errorf("no naive nodes assigned")
 )
 
 type Service struct {
-	userRepo *users.Repository
-	devMode  bool
+	userRepo            *users.Repository
+	devMode             bool
+	profileTitle        string
+	updateIntervalHours int
 }
 
-func NewService(userRepo *users.Repository, devMode bool) *Service {
-	return &Service{userRepo: userRepo, devMode: devMode}
+func NewService(userRepo *users.Repository, devMode bool, profileTitle string, updateIntervalHours int) *Service {
+	if strings.TrimSpace(profileTitle) == "" {
+		profileTitle = DefaultProfileTitle
+	}
+	if updateIntervalHours <= 0 {
+		updateIntervalHours = DefaultUpdateIntervalHours
+	}
+	return &Service{
+		userRepo:            userRepo,
+		devMode:             devMode,
+		profileTitle:        profileTitle,
+		updateIntervalHours: updateIntervalHours,
+	}
 }
 
 func (s *Service) BuildByToken(ctx context.Context, token, format string) (string, string, error) {
@@ -43,22 +69,30 @@ func (s *Service) BuildByToken(ctx context.Context, token, format string) (strin
 	if err != nil {
 		return "", "", err
 	}
-	return BuildSubscription(assignments, format, s.devMode)
+	return BuildSubscriptionWithMetadata(assignments, format, s.devMode, s.profileTitle, s.updateIntervalHours)
 }
 
-var ErrSubscriptionDisabled = fmt.Errorf("subscription disabled or expired")
-
 func BuildSubscription(assignments []users.AccessWithNode, format string, devMode bool) (string, string, error) {
+	return BuildSubscriptionWithMetadata(assignments, format, devMode, DefaultProfileTitle, DefaultUpdateIntervalHours)
+}
+
+func BuildSubscriptionWithMetadata(assignments []users.AccessWithNode, format string, devMode bool, profileTitle string, updateIntervalHours int) (string, string, error) {
 	switch normalizeFormat(format) {
 	case FormatJSON, FormatKaring, FormatSingBox:
 		body, err := BuildSingboxJSON(assignments)
 		return body, "application/json; charset=utf-8", err
+	case FormatHiddify:
+		body, err := buildHiddifyAll(assignments, devMode, profileTitle)
+		return body, "text/plain; charset=utf-8", err
 	case FormatMierus:
-		body := buildRawMieru(assignments, devMode)
-		return body, "text/plain; charset=utf-8", nil
+		body, err := buildRawMieru(assignments, devMode)
+		return body, "text/plain; charset=utf-8", err
+	case FormatNaive:
+		body, err := buildRawNaive(assignments)
+		return body, "text/plain; charset=utf-8", err
 	case FormatRaw:
-		body := buildRawAll(assignments, devMode)
-		return body, "text/plain; charset=utf-8", nil
+		body, err := buildRawAll(assignments, devMode, profileTitle, updateIntervalHours)
+		return body, "text/plain; charset=utf-8", err
 	default:
 		body, err := BuildSingboxJSON(assignments)
 		return body, "application/json; charset=utf-8", err
@@ -69,6 +103,17 @@ func BuildNaiveURI(access users.AccessWithNode) string {
 	settings := protocolSettingsForAccess(access)
 	u := url.URL{
 		Scheme: "naive+https",
+		User:   url.UserPassword(access.ProtocolUsername, access.ProtocolPassword),
+		Host:   nodeServer(access) + ":" + strconv.Itoa(settings.Naive.Port),
+	}
+	u.Fragment = access.NodeName
+	return u.String()
+}
+
+func BuildNaiveHiddifyURI(access users.AccessWithNode) string {
+	settings := protocolSettingsForAccess(access)
+	u := url.URL{
+		Scheme: "naive",
 		User:   url.UserPassword(access.ProtocolUsername, access.ProtocolPassword),
 		Host:   nodeServer(access) + ":" + strconv.Itoa(settings.Naive.Port),
 	}
@@ -230,40 +275,94 @@ func BuildSingboxJSON(assignments []users.AccessWithNode) (string, error) {
 	return string(data), nil
 }
 
-func buildRawAll(assignments []users.AccessWithNode, devMode bool) string {
-	lines := make([]string, 0, len(assignments))
+func buildRawAll(assignments []users.AccessWithNode, devMode bool, profileTitle string, updateIntervalHours int) (string, error) {
+	lines := []string{
+		"//profile-title: base64:" + ProfileTitleBase64(profileTitle),
+		"//profile-update-interval: " + strconv.Itoa(updateIntervalHours),
+		"//subscription-userinfo: upload=0; download=0; total=0; expire=0",
+		"",
+	}
 	for _, assignment := range assignments {
 		switch assignment.NodeProtocolType {
 		case "naive":
-			lines = append(lines, BuildNaiveURI(assignment))
+			lines = append(lines, "# "+assignment.NodeName, BuildNaiveHiddifyURI(assignment), BuildNaiveURI(assignment), "")
 		case "mieru":
-			lines = append(lines, BuildMieruURI(assignment, devMode))
+			lines = append(lines, "# "+assignment.NodeName, BuildMieruURI(assignment, devMode), "")
 		}
 	}
-	return strings.Join(lines, "\n")
+	return strings.TrimSpace(strings.Join(lines, "\n")), nil
 }
 
-func buildRawMieru(assignments []users.AccessWithNode, devMode bool) string {
+func buildHiddifyAll(assignments []users.AccessWithNode, devMode bool, profileTitle string) (string, error) {
+	lines := []string{"# " + profileTitle}
+	for _, assignment := range assignments {
+		switch assignment.NodeProtocolType {
+		case "mieru":
+			lines = append(lines, "", "# "+assignment.NodeName, BuildMieruURI(assignment, devMode))
+		case "naive":
+			lines = append(lines, "", "# "+assignment.NodeName, BuildNaiveHiddifyURI(assignment))
+		}
+	}
+	if len(lines) == 1 {
+		return "", ErrNoSupportedNodesAssigned
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n")), nil
+}
+
+func buildRawMieru(assignments []users.AccessWithNode, devMode bool) (string, error) {
 	lines := make([]string, 0, len(assignments))
 	for _, assignment := range assignments {
 		if assignment.NodeProtocolType == "mieru" {
 			lines = append(lines, BuildMieruURI(assignment, devMode))
 		}
 	}
-	return strings.Join(lines, "\n")
+	if len(lines) == 0 {
+		return "", ErrNoMieruNodesAssigned
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func buildRawNaive(assignments []users.AccessWithNode) (string, error) {
+	lines := make([]string, 0, len(assignments))
+	for _, assignment := range assignments {
+		if assignment.NodeProtocolType == "naive" {
+			lines = append(lines, BuildNaiveHiddifyURI(assignment))
+		}
+	}
+	if len(lines) == 0 {
+		return "", ErrNoNaiveNodesAssigned
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func normalizeFormat(format string) string {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case FormatDefault, FormatJSON, FormatKaring, FormatSingBox:
 		return FormatJSON
+	case FormatHiddify:
+		return FormatHiddify
 	case FormatRaw:
 		return FormatRaw
 	case FormatMierus:
 		return FormatMierus
+	case FormatNaive:
+		return FormatNaive
 	default:
 		return FormatJSON
 	}
+}
+
+func ContentDispositionFilename(format string) string {
+	switch normalizeFormat(format) {
+	case FormatJSON, FormatKaring, FormatSingBox:
+		return "vetka-vpn.json"
+	default:
+		return "vetka-vpn.txt"
+	}
+}
+
+func ProfileTitleBase64(title string) string {
+	return base64.StdEncoding.EncodeToString([]byte(title))
 }
 
 func outboundTag(access users.AccessWithNode) string {

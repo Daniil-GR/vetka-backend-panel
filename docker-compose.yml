@@ -22,6 +22,10 @@ services:
       APP_ENV: dev
       HTTP_ADDR: ${HTTP_ADDR:-:8080}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      PANEL_PUBLIC_BASE_URL: ${PANEL_PUBLIC_BASE_URL:-http://localhost:8080}
+      SUBSCRIPTION_PUBLIC_BASE_URL: ${SUBSCRIPTION_PUBLIC_BASE_URL:-http://localhost:8080}
+      SUBSCRIPTION_PROFILE_TITLE: ${SUBSCRIPTION_PROFILE_TITLE:-Ветка VPN}
+      SUBSCRIPTION_UPDATE_INTERVAL_HOURS: ${SUBSCRIPTION_UPDATE_INTERVAL_HOURS:-12}
       DATABASE_URL: ${DATABASE_URL:-postgres://vetka:vetka@postgres:5432/vetka_backend?sslmode=disable}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
@@ -33,7 +37,8 @@ services:
     image: caddy:2
     profiles: ["https"]
     environment:
-      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+      PANEL_DOMAIN: ${PANEL_DOMAIN:-panel.localhost}
+      SUBSCRIPTION_DOMAIN: ${SUBSCRIPTION_DOMAIN:-sub.localhost}
     ports:
       - "80:80"
       - "443:443"

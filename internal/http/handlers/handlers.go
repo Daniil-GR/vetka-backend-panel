@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -225,16 +227,20 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 	access, _ := h.userRepo.AccessForUser(r.Context(), user.ID)
 	nodesList, _ := h.nodeRepo.List(r.Context())
 	h.render(w, "user_detail.html", map[string]any{
-		"Title":                 "User",
-		"User":                  user,
-		"Access":                access,
-		"Nodes":                 nodesList,
-		"SubscriptionURL":       h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken,
-		"SubscriptionJSONURL":   h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=json",
-		"SubscriptionRawURL":    h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=raw",
-		"SubscriptionMierusURL": h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=mierus",
-		"Flash":                 r.URL.Query().Get("flash"),
-		"FlashLevel":            r.URL.Query().Get("level"),
+		"Title":                  "User",
+		"User":                   user,
+		"Access":                 access,
+		"Nodes":                  nodesList,
+		"KaringSubscriptionURL":  h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken,
+		"KaringJSONURL":          h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=json",
+		"HiddifySubscriptionURL": h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=hiddify",
+		"HiddifyMierusURL":       h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=mierus",
+		"HiddifyNaiveURL":        h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=naive",
+		"SubscriptionRawURL":     h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=raw",
+		"HasMieruAccess":         hasProtocolAccess(access, "mieru"),
+		"HasNaiveAccess":         hasProtocolAccess(access, "naive"),
+		"Flash":                  r.URL.Query().Get("flash"),
+		"FlashLevel":             r.URL.Query().Get("level"),
 	})
 }
 
@@ -348,12 +354,13 @@ func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Subscription(w http.ResponseWriter, r *http.Request) {
-	body, contentType, err := h.subSvc.BuildByToken(r.Context(), chi.URLParam(r, "token"), r.URL.Query().Get("format"))
+	format := r.URL.Query().Get("format")
+	body, contentType, err := h.subSvc.BuildByToken(r.Context(), chi.URLParam(r, "token"), format)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", contentType)
+	h.applySubscriptionHeaders(w, format, contentType)
 	_, _ = w.Write([]byte(body + "\n"))
 }
 
@@ -477,15 +484,35 @@ func (h *Handler) APIUserSubscription(w http.ResponseWriter, r *http.Request) {
 		writeJSONOrError(w, http.StatusNotFound, nil, err)
 		return
 	}
-	base := h.cfg.PublicBaseURL + "/sub/" + user.SubscriptionToken
+	base := h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken
 	writeJSONOrError(w, http.StatusOK, map[string]string{
-		"url":         base,
-		"json_url":    base + "?format=json",
-		"karing_url":  base + "?format=karing",
-		"raw_url":     base + "?format=raw",
-		"mierus_url":  base + "?format=mierus",
-		"singbox_url": base + "?format=sing-box",
+		"url":           base,
+		"json_url":      base + "?format=json",
+		"karing_url":    base + "?format=karing",
+		"hiddify_url":   base + "?format=hiddify",
+		"raw_url":       base + "?format=raw",
+		"mierus_url":    base + "?format=mierus",
+		"naive_url":     base + "?format=naive",
+		"singbox_url":   base + "?format=sing-box",
+		"profile_title": h.cfg.SubscriptionProfileTitle,
 	}, nil)
+}
+
+func hasProtocolAccess(access []users.Access, protocol string) bool {
+	for _, item := range access {
+		if item.ProtocolType == protocol && item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) applySubscriptionHeaders(w http.ResponseWriter, format, contentType string) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(h.cfg.SubscriptionProfileTitle)))
+	w.Header().Set("Profile-Update-Interval", strconv.Itoa(h.cfg.SubscriptionUpdateIntervalHours))
+	w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, subscriptions.ContentDispositionFilename(format)))
 }
 
 func (h *Handler) APIListNodes(w http.ResponseWriter, r *http.Request) {

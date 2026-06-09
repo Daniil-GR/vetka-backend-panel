@@ -1,4 +1,16 @@
-{$CADDY_DOMAIN} {
+{$PANEL_DOMAIN} {
   encode zstd gzip
   reverse_proxy backend:8080
+}
+
+{$SUBSCRIPTION_DOMAIN} {
+  encode zstd gzip
+
+  handle /sub/* {
+    reverse_proxy backend:8080
+  }
+
+  handle {
+    respond "Not found" 404
+  }
 }

@@ -43,7 +43,12 @@ The default `docker-compose.yml` keeps both PostgreSQL and the backend on the in
 Authorization: Bearer <ADMIN_API_TOKEN>
 ```
 
-For HTTPS deployments, the repository also includes a `caddy` service and [Caddyfile](C:/Users/79293/Documents/VetkaBackendPanel/Caddyfile). Run Compose with the `https` profile and provide `CADDY_DOMAIN` plus `PUBLIC_BASE_URL=https://your-domain`. In HTTPS mode only `80/443` should be public. Direct HTTP mode exposes `8080` only when it is explicitly enabled through an override file.
+For HTTPS deployments, the repository also includes a `caddy` service and [Caddyfile](C:/Users/79293/Documents/VetkaBackendPanel/Caddyfile). The intended production split is:
+
+- `panel.vetka.tech`: admin UI, login, nodes, users, API
+- `sub2.vetka.tech`: subscription delivery only under `/sub/*`
+
+In HTTPS mode only `80/443` should be public. Direct HTTP mode exposes `8080` only when it is explicitly enabled through an override file.
 
 ## Migrations
 
@@ -140,7 +145,7 @@ The subscription builder now emits real `mierus://` sharing links for Mieru node
 Create users in `/users`. The panel generates `subscription_token` and per-node protocol credentials. A user subscription is available at:
 
 ```text
-https://sub.vetka.tech/sub/<subscription_token>
+https://sub2.vetka.tech/sub/<subscription_token>
 ```
 
 Default subscription responses are JSON configs suitable for Karing and sing-box-style imports:
@@ -152,16 +157,34 @@ Default subscription responses are JSON configs suitable for Karing and sing-box
 /sub/<token>?format=sing-box
 ```
 
-Optional plain-text formats are also available:
+Hiddify-oriented plain-text formats are also available:
 
 ```text
+/sub/<token>?format=hiddify
 /sub/<token>?format=raw
 /sub/<token>?format=mierus
+/sub/<token>?format=naive
 ```
 
 Disabled or expired users do not receive a subscription response and are excluded from node sync payloads.
 
 JSON subscriptions include a selector outbound tagged `proxy`, protocol-specific outbounds for assigned nodes, DNS config, and route rules compatible with a simple Karing import flow. Naive uses the configured node port and Mieru uses the first port from the configured range when rendered into JSON.
+
+`format=hiddify` returns a plain-text subscription with one proxy link per line:
+
+- Mieru nodes as `mierus://...`
+- Naive nodes as `naive://...`
+
+`format=mierus` is kept as a backward-compatible Mieru-only alias. `format=naive` returns Naive-only links. `format=raw` is a diagnostic format and may include both `naive://` and legacy `naive+https://`.
+
+All `/sub/*` responses include:
+
+- `Profile-Title`
+- `Profile-Update-Interval`
+- `Subscription-Userinfo`
+- `Content-Disposition`
+
+The default profile title is `Ветка VPN`.
 
 ## API For Future Telegram Bot
 
@@ -202,6 +225,8 @@ If `NODE_SECRET` is exposed, rotate it and update the backend record before the 
 
 Admin UI should be served behind HTTPS in production. In HTTPS mode only `80/443` should be exposed. In direct HTTP mode `8080` should be exposed only when you explicitly enable it. Generated secrets should be stored securely and should not be committed to git.
 
+The subscription domain should only expose `/sub/*`. Requests like `https://sub2.vetka.tech/login` should return `404`.
+
 TODO: add encryption at rest for node secrets using `APP_SECRET`.
 
 Never commit real `.env` files or production secrets.
@@ -220,6 +245,15 @@ The installer keeps PostgreSQL private, can configure UFW, and supports either:
 - Direct HTTP mode: public `8080` only when explicitly enabled
 
 `update.sh` preserves the chosen install mode. PostgreSQL is never published publicly by the default compose stack.
+
+Important environment variables:
+
+```env
+PANEL_PUBLIC_BASE_URL=https://panel.vetka.tech
+SUBSCRIPTION_PUBLIC_BASE_URL=https://sub2.vetka.tech
+SUBSCRIPTION_PROFILE_TITLE=Ветка VPN
+SUBSCRIPTION_UPDATE_INTERVAL_HOURS=12
+```
 
 Useful deployment commands:
 
