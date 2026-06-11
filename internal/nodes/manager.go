@@ -269,7 +269,7 @@ func (m *Manager) syncNodeAttempt(ctx context.Context, node Node, assigned []use
 			Password:  access.ProtocolPassword,
 			Enabled:   access.Enabled,
 			ExpiresAt: access.UserExpiresAt,
-			QuotaMB:   0,
+			QuotaMB:   access.UserQuotaMB,
 			Protocols: []string{node.ProtocolType},
 			Meta: map[string]string{
 				"backend_user_id":  access.UserID,

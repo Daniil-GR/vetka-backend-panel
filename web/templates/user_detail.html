@@ -16,11 +16,14 @@
       <form method="post" action="/users/{{.User.ID}}" class="grid-form">
         <label>Username <input name="username" value="{{.User.Username}}" required></label>
         <label>Display name <input name="display_name" value="{{if .User.DisplayName}}{{.User.DisplayName}}{{end}}"></label>
-        <label>Expires at <input type="date" name="expires_at" value="{{formatDateInput .User.ExpiresAt}}"></label>
+        <label>Expires at <input type="datetime-local" name="expires_at" value="{{formatDateTimeInput .User.ExpiresAt}}"></label>
+        <label>Quota MB <input type="number" name="quota_mb" min="0" value="{{.User.QuotaMB}}"></label>
         <label>Notes <input name="notes" value="{{if .User.Notes}}{{.User.Notes}}{{end}}"></label>
         <label class="check"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}> Enabled</label>
         <button>Save</button>
       </form>
+      <p class="hint {{.SubscriptionExpiryTone}}">{{.SubscriptionExpiryText}}</p>
+      <p class="hint">Quota MB 0 keeps subscription total unlimited while upload/download stay 0.</p>
       <p>Karing subscription: <code>{{.KaringSubscriptionURL}}</code></p>
       <p>Karing JSON: <code>{{.KaringJSONURL}}</code></p>
       <p>Hiddify subscription: <code>{{.HiddifySubscriptionURL}}</code></p>
@@ -43,8 +46,8 @@
       </form>
     </section>
     <table>
-      <thead><tr><th>Node</th><th>Protocol</th><th>Username</th><th>Password</th><th>Enabled</th><th></th></tr></thead>
-      <tbody>{{range .Access}}<tr><td>{{.NodeID}}</td><td>{{.ProtocolType}}</td><td>{{.ProtocolUsername}}</td><td>{{mask .ProtocolPassword}}</td><td>{{.Enabled}}</td><td><form method="post" action="/users/{{.UserID}}/unassign-node"><input type="hidden" name="node_id" value="{{.NodeID}}"><button class="danger">Unassign</button></form></td></tr>{{else}}<tr><td colspan="6">No node assignments.</td></tr>{{end}}</tbody>
+      <thead><tr><th>Node</th><th>Protocol</th><th>Username</th><th>Password</th><th>Access status</th><th>Actions</th></tr></thead>
+      <tbody>{{range .Access}}<tr><td>{{.NodeID}}</td><td>{{.ProtocolType}}</td><td>{{.ProtocolUsername}}</td><td>{{mask .ProtocolPassword}}</td><td>{{if .Enabled}}enabled{{else}}disabled{{end}}</td><td class="actions">{{if .Enabled}}<form method="post" action="/users/{{.UserID}}/nodes/{{.ID}}/disable"><button>Disable</button></form>{{else}}<form method="post" action="/users/{{.UserID}}/nodes/{{.ID}}/enable"><button>Enable</button></form>{{end}}<form method="post" action="/users/{{.UserID}}/unassign-node"><input type="hidden" name="node_id" value="{{.NodeID}}"><button class="danger">Unassign</button></form></td></tr>{{else}}<tr><td colspan="6">No node assignments.</td></tr>{{end}}</tbody>
     </table>
   </main>
 </body>

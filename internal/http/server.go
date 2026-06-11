@@ -21,11 +21,13 @@ import (
 )
 
 func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) http.Handler {
+	appLocation := loadAppLocation(cfg.AppTimezone)
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
-		"mask":            handlers.Mask,
-		"formatTime":      formatTime,
-		"formatDateInput": formatDateInput,
-		"join":            strings.Join,
+		"mask":                handlers.Mask,
+		"formatTime":          func(t any) string { return formatTime(t, appLocation) },
+		"formatDateTime":      func(t *time.Time) string { return formatDateTime(t, appLocation) },
+		"formatDateTimeInput": func(t *time.Time) string { return formatDateTimeInput(t, appLocation) },
+		"join":                strings.Join,
 	}).ParseFS(web.FS, "templates/*.html"))
 
 	nodeRepo := nodes.NewRepository(pool)
@@ -70,6 +72,8 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) http.
 		protected.Post("/users/{id}/enable", h.EnableUser)
 		protected.Post("/users/{id}/disable", h.DisableUser)
 		protected.Post("/users/{id}/assign-node", h.AssignNode)
+		protected.Post("/users/{id}/nodes/{accessID}/enable", h.EnableUserNodeAccess)
+		protected.Post("/users/{id}/nodes/{accessID}/disable", h.DisableUserNodeAccess)
 		protected.Post("/users/{id}/unassign-node", h.UnassignNode)
 		protected.Post("/users/{id}/sync", h.SyncUserNodes)
 	})
@@ -106,25 +110,49 @@ func requestLog(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-func formatTime(t any) string {
+func formatTime(t any, loc *time.Location) string {
+	if loc == nil {
+		loc = time.UTC
+	}
 	switch value := t.(type) {
 	case time.Time:
-		return value.Format("2006-01-02 15:04")
+		return value.In(loc).Format("2006-01-02 15:04 MST")
 	case *time.Time:
 		if value == nil {
 			return ""
 		}
-		return value.Format("2006-01-02 15:04")
+		return value.In(loc).Format("2006-01-02 15:04 MST")
 	default:
 		return ""
 	}
 }
 
-func formatDateInput(t *time.Time) string {
+func formatDateTimeInput(t *time.Time, loc *time.Location) string {
 	if t == nil {
 		return ""
 	}
-	return t.Format("2006-01-02")
+	if loc == nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format("2006-01-02T15:04")
+}
+
+func formatDateTime(t *time.Time, loc *time.Location) string {
+	if t == nil {
+		return "unlimited"
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format("2006-01-02 15:04 MST")
+}
+
+func loadAppLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

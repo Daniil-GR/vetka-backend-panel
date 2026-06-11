@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"vetka-backend-panel/internal/config"
+	"vetka-backend-panel/internal/users"
 )
 
 func TestApplySubscriptionHeaders(t *testing.T) {
@@ -29,7 +32,7 @@ func TestApplySubscriptionHeaders(t *testing.T) {
 
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
-		h.applySubscriptionHeaders(rec, tc.format, tc.contentType)
+		h.applySubscriptionHeaders(rec, tc.format, tc.contentType, users.User{})
 		if got := rec.Header().Get("Profile-Title"); got != "base64:0JLQtdGC0LrQsCBWUE4=" {
 			t.Fatalf("unexpected Profile-Title for %q: %s", tc.format, got)
 		}
@@ -45,5 +48,19 @@ func TestApplySubscriptionHeaders(t *testing.T) {
 		if got := rec.Header().Get("Content-Type"); got != tc.contentType {
 			t.Fatalf("unexpected Content-Type for %q: %s", tc.format, got)
 		}
+	}
+}
+
+func TestSubscriptionUserinfo(t *testing.T) {
+	expires := time.Date(2026, 6, 12, 15, 0, 0, 0, time.UTC)
+	withQuota := subscriptionUserinfo(users.User{ExpiresAt: &expires, QuotaMB: 1024})
+	expected := "upload=0; download=0; total=1073741824; expire=" + strconv.FormatInt(expires.UTC().Unix(), 10)
+	if withQuota != expected {
+		t.Fatalf("unexpected userinfo with quota/expiry: %s", withQuota)
+	}
+
+	noExpiry := subscriptionUserinfo(users.User{})
+	if noExpiry != "upload=0; download=0; total=0; expire=0" {
+		t.Fatalf("unexpected userinfo without expiry: %s", noExpiry)
 	}
 }

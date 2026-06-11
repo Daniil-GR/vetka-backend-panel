@@ -78,6 +78,7 @@ func BuildSubscription(assignments []users.AccessWithNode, format string, devMod
 }
 
 func BuildSubscriptionWithMetadata(assignments []users.AccessWithNode, format string, devMode bool, profileTitle string, updateIntervalHours int) (string, string, error) {
+	assignments = activeAssignments(assignments)
 	switch normalizeFormat(format) {
 	case FormatJSON, FormatKaring, FormatSingBox:
 		body, err := BuildSingboxJSON(assignments)
@@ -101,6 +102,16 @@ func BuildSubscriptionWithMetadata(assignments []users.AccessWithNode, format st
 		body, err := BuildSingboxJSON(assignments)
 		return body, "application/json; charset=utf-8", err
 	}
+}
+
+func activeAssignments(assignments []users.AccessWithNode) []users.AccessWithNode {
+	filtered := make([]users.AccessWithNode, 0, len(assignments))
+	for _, assignment := range assignments {
+		if assignment.Enabled {
+			filtered = append(filtered, assignment)
+		}
+	}
+	return filtered
 }
 
 func BuildNaiveURI(access users.AccessWithNode) string {

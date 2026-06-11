@@ -10,6 +10,7 @@ import (
 type Config struct {
 	AppEnv                          string
 	HTTPAddr                        string
+	AppTimezone                     string
 	PublicBaseURL                   string
 	PanelPublicBaseURL              string
 	SubscriptionPublicBaseURL       string
@@ -31,6 +32,7 @@ func Load() Config {
 	return Config{
 		AppEnv:                          getenv("APP_ENV", "dev"),
 		HTTPAddr:                        getenv("HTTP_ADDR", ":8080"),
+		AppTimezone:                     getenv("APP_TIMEZONE", "Europe/Moscow"),
 		PublicBaseURL:                   publicBaseURL,
 		PanelPublicBaseURL:              panelBaseURL,
 		SubscriptionPublicBaseURL:       subscriptionBaseURL,

@@ -31,6 +31,7 @@
         <label>Enabled <select name="enabled"><option value="true" {{if .Node.Enabled}}selected{{end}}>true</option><option value="false" {{if not .Node.Enabled}}selected{{end}}>false</option></select></label>
         <button type="submit">Save</button>
       </form>
+      <p class="hint">Disabling a node hides it from generated subscriptions. Existing client configs may keep working until refresh.</p>
       <form method="post" action="/nodes/{{.Node.ID}}/validate-status" class="inline-form">
         <button type="submit">Validate /status</button>
       </form>

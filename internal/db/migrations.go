@@ -125,4 +125,11 @@ alter table nodes
   add column if not exists protocol_settings jsonb not null default '{}'::jsonb;
 `,
 	},
+	{
+		Version: "004_user_quota_mb",
+		SQL: `
+alter table users
+  add column if not exists quota_mb integer not null default 0;
+`,
+	},
 }

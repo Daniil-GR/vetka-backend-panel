@@ -262,6 +262,32 @@ func TestBuildSubscriptionHiddifyJSON(t *testing.T) {
 	}
 }
 
+func TestBuildSubscriptionSkipsDisabledAssignments(t *testing.T) {
+	assignments := testAssignments()
+	assignments[0].Enabled = false
+
+	jsonBody, _, err := BuildSubscription(assignments, "json", false)
+	if err != nil {
+		t.Fatalf("json build error: %v", err)
+	}
+	if strings.Contains(jsonBody, `"type": "naive"`) {
+		t.Fatalf("disabled naive assignment should not be present in json: %s", jsonBody)
+	}
+
+	hiddifyBody, _, err := BuildSubscription(assignments, "hiddify", false)
+	if err != nil {
+		t.Fatalf("hiddify build error: %v", err)
+	}
+	if strings.Contains(hiddifyBody, "naive://") {
+		t.Fatalf("disabled naive assignment should not be present in hiddify output: %s", hiddifyBody)
+	}
+
+	naiveBody, _, err := BuildSubscription(assignments, "naive", false)
+	if err == nil || !strings.Contains(err.Error(), "no naive nodes assigned") {
+		t.Fatalf("expected no naive nodes assigned error, got body=%q err=%v", naiveBody, err)
+	}
+}
+
 func TestContentDispositionFilename(t *testing.T) {
 	if got := ContentDispositionFilename("json"); got != "vetka-vpn.json" {
 		t.Fatalf("unexpected json filename: %s", got)
@@ -280,7 +306,7 @@ func TestProfileTitleBase64(t *testing.T) {
 func testAssignments() []users.AccessWithNode {
 	return []users.AccessWithNode{
 		{
-			Access:                   users.Access{NodeID: "naive-node", ProtocolUsername: "easewa", ProtocolPassword: "as3231e2"},
+			Access:                   users.Access{NodeID: "naive-node", ProtocolUsername: "easewa", ProtocolPassword: "as3231e2", Enabled: true},
 			AgentNodeID:              "f755b1",
 			NodeName:                 "Alps Node",
 			NodeDomain:               "alps.vetka.tech",
@@ -288,7 +314,7 @@ func testAssignments() []users.AccessWithNode {
 			NodeProtocolSettingsJSON: []byte(`{"naive":{"port":443}}`),
 		},
 		{
-			Access:                   users.Access{NodeID: "mieru-node", ProtocolUsername: "user", ProtocolPassword: "password"},
+			Access:                   users.Access{NodeID: "mieru-node", ProtocolUsername: "user", ProtocolPassword: "password", Enabled: true},
 			AgentNodeID:              "test-mieru-1",
 			NodeName:                 "Chrono Node",
 			NodeDomain:               "chrono.vetka.tech",

@@ -169,6 +169,8 @@ Hiddify-oriented plain-text formats are also available:
 
 Disabled or expired users do not receive a subscription response and are excluded from node sync payloads.
 
+`quota_mb` is currently metadata for `Subscription-Userinfo` only. `upload` and `download` stay `0`, and `total` is derived as `quota_mb * 1024 * 1024` when `quota_mb > 0`.
+
 JSON subscriptions include a selector outbound tagged `proxy`, protocol-specific outbounds for assigned nodes, DNS config, and route rules compatible with a simple Karing import flow. Naive uses the configured node port and Mieru uses the first port from the configured range when rendered into JSON.
 
 `format=hiddify` returns a plain-text subscription with one proxy link per line:
@@ -188,6 +190,14 @@ All `/sub/*` responses include:
 - `Profile-Update-Interval`
 - `Subscription-Userinfo`
 - `Content-Disposition`
+
+`Subscription-Userinfo` is emitted as:
+
+```text
+upload=0; download=0; total=<bytes>; expire=<unix>
+```
+
+`expire` always uses the exact Unix timestamp from `expires_at.UTC()`. The panel does not apply date-only or end-of-day expansion.
 
 The default profile title is `Ветка VPN`.
 
@@ -232,6 +242,8 @@ Admin UI should be served behind HTTPS in production. In HTTPS mode only `80/443
 
 The subscription domain should only expose `/sub/*`. Requests like `https://sub2.vetka.tech/login` should return `404`.
 
+Disabling a node hides it from generated subscriptions. Existing client configs may keep working until the client refreshes the subscription. This patch does not force an empty revoke sync for `node.enabled=false`.
+
 TODO: add encryption at rest for node secrets using `APP_SECRET`.
 
 Never commit real `.env` files or production secrets.
@@ -258,6 +270,7 @@ PANEL_PUBLIC_BASE_URL=https://panel.vetka.tech
 SUBSCRIPTION_PUBLIC_BASE_URL=https://sub2.vetka.tech
 SUBSCRIPTION_PROFILE_TITLE=Ветка VPN
 SUBSCRIPTION_UPDATE_INTERVAL_HOURS=12
+APP_TIMEZONE=Europe/Moscow
 ```
 
 Useful deployment commands:
@@ -268,6 +281,17 @@ docker compose ps
 docker compose logs --tail=100 backend
 docker compose exec -T postgres pg_isready -U vetka -d vetka_backend
 ```
+
+## Future
+
+Future integration with the main Vetka backend should treat `users + subscriptions` as the access source of truth. `subscriptions.expires_at` is the primary expiration timestamp, `users.subscription_expires_at` can stay a cache or summary, and payments or orders should remain history rather than active access state. The reserve panel should receive the exact subscription end timestamp from the main backend, preserve that exact moment, store absolute time as UTC or `timestamptz`, display it in `Europe/Moscow` when needed, and emit `Subscription-Userinfo expire` as a Unix timestamp. Current access should depend on an enabled user plus an active, not-yet-expired current subscription, while replaced or old subscriptions should not grant access.
+
+### Squads
+
+- users can be assigned to squads
+- nodes can be assigned to squads
+- effective access = enabled user + active squad membership + enabled nodes in squad
+- per-user node access remains as a manual override
 
 ## Checks
 

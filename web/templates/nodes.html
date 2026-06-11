@@ -62,7 +62,7 @@
       <tbody>
         {{range .Nodes}}
         <tr>
-          <td>{{.Name}}<br><small>{{.Domain}}</small></td>
+          <td>{{.Name}}{{if not .Enabled}} <span class="badge disabled">disabled</span>{{end}}<br><small>{{.Domain}}</small></td>
           <td>{{.NodeID}}</td>
           <td>{{.ProtocolType}}</td>
           <td>{{.SetupState}}</td>

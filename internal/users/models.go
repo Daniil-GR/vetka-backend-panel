@@ -8,6 +8,7 @@ type User struct {
 	DisplayName       *string
 	Enabled           bool
 	ExpiresAt         *time.Time
+	QuotaMB           int
 	SubscriptionToken string
 	Notes             *string
 	CreatedAt         time.Time
@@ -19,6 +20,7 @@ type CreateUserInput struct {
 	DisplayName *string    `json:"display_name"`
 	Enabled     bool       `json:"enabled"`
 	ExpiresAt   *time.Time `json:"expires_at"`
+	QuotaMB     int        `json:"quota_mb"`
 	Notes       *string    `json:"notes"`
 	NodeIDs     []string   `json:"node_ids"`
 }
@@ -42,6 +44,7 @@ type AccessWithUser struct {
 	Username      string
 	UserEnabled   bool
 	UserExpiresAt *time.Time
+	UserQuotaMB   int
 }
 
 type UserWithAccess struct {

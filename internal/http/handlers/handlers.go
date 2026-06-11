@@ -24,6 +24,7 @@ import (
 
 type Handler struct {
 	cfg         config.Config
+	appLocation *time.Location
 	logger      *slog.Logger
 	tmpl        *template.Template
 	nodeRepo    *nodes.Repository
@@ -34,7 +35,17 @@ type Handler struct {
 }
 
 func New(cfg config.Config, logger *slog.Logger, tmpl *template.Template, nodeRepo *nodes.Repository, nodeManager *nodes.Manager, userRepo *users.Repository, userSvc *users.Service, subSvc *subscriptions.Service) *Handler {
-	return &Handler{cfg: cfg, logger: logger, tmpl: tmpl, nodeRepo: nodeRepo, nodeManager: nodeManager, userRepo: userRepo, userSvc: userSvc, subSvc: subSvc}
+	return &Handler{
+		cfg:         cfg,
+		appLocation: loadAppLocation(cfg.AppTimezone),
+		logger:      logger,
+		tmpl:        tmpl,
+		nodeRepo:    nodeRepo,
+		nodeManager: nodeManager,
+		userRepo:    userRepo,
+		userSvc:     userSvc,
+		subSvc:      subSvc,
+	}
 }
 
 func Mask(secret string) string {
@@ -207,11 +218,12 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	for _, node := range nodesList {
 		protocols[node.ID] = node.ProtocolType
 	}
-	user, err := h.userSvc.CreateUser(r.Context(), userInputFromForm(r), protocols)
+	in := h.userInputFromForm(r)
+	user, err := h.userSvc.CreateUser(r.Context(), in, protocols)
 	if h.handleErr(w, err) {
 		return
 	}
-	syncErrors := h.syncNodesAfterChange(r.Context(), userInputFromForm(r).NodeIDs)
+	syncErrors := h.syncNodesAfterChange(r.Context(), in.NodeIDs)
 	if len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+user.ID, "User saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
@@ -231,6 +243,8 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 		"User":                   user,
 		"Access":                 access,
 		"Nodes":                  nodesList,
+		"SubscriptionExpiryText": subscriptionExpiryText(user.ExpiresAt, h.appLocation),
+		"SubscriptionExpiryTone": subscriptionExpiryTone(user.ExpiresAt),
 		"KaringSubscriptionURL":  h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken,
 		"KaringJSONURL":          h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=json",
 		"HiddifySubscriptionURL": h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=hiddify",
@@ -250,7 +264,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	_, err = h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), userInputFromForm(r))
+	_, err = h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), h.userInputFromForm(r))
 	if h.handleErr(w, err) {
 		return
 	}
@@ -342,6 +356,36 @@ func (h *Handler) UnassignNode(w http.ResponseWriter, r *http.Request) {
 	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node unassigned and synced", "success")
 }
 
+func (h *Handler) EnableUserNodeAccess(w http.ResponseWriter, r *http.Request) {
+	access, err := h.userRepo.AccessByID(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "accessID"))
+	if h.handleErr(w, err) {
+		return
+	}
+	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, true); h.handleErr(w, err) {
+		return
+	}
+	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access enabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access enabled and synced", "success")
+}
+
+func (h *Handler) DisableUserNodeAccess(w http.ResponseWriter, r *http.Request) {
+	access, err := h.userRepo.AccessByID(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "accessID"))
+	if h.handleErr(w, err) {
+		return
+	}
+	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, false); h.handleErr(w, err) {
+		return
+	}
+	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access disabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access disabled and synced", "success")
+}
+
 func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
 	errs, err := h.syncUserAssignments(r.Context(), chi.URLParam(r, "id"))
 	if h.handleErr(w, err) {
@@ -355,13 +399,18 @@ func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Subscription(w http.ResponseWriter, r *http.Request) {
+	user, userErr := h.userRepo.GetByToken(r.Context(), chi.URLParam(r, "token"))
+	if userErr != nil {
+		http.Error(w, userErr.Error(), http.StatusNotFound)
+		return
+	}
 	format := r.URL.Query().Get("format")
 	body, contentType, err := h.subSvc.BuildByToken(r.Context(), chi.URLParam(r, "token"), format)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	h.applySubscriptionHeaders(w, format, contentType)
+	h.applySubscriptionHeaders(w, format, contentType, user)
 	_, _ = w.Write([]byte(body + "\n"))
 }
 
@@ -509,12 +558,52 @@ func hasProtocolAccess(access []users.Access, protocol string) bool {
 	return false
 }
 
-func (h *Handler) applySubscriptionHeaders(w http.ResponseWriter, format, contentType string) {
+func (h *Handler) applySubscriptionHeaders(w http.ResponseWriter, format, contentType string, user users.User) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(h.cfg.SubscriptionProfileTitle)))
 	w.Header().Set("Profile-Update-Interval", strconv.Itoa(h.cfg.SubscriptionUpdateIntervalHours))
-	w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
+	w.Header().Set("Subscription-Userinfo", subscriptionUserinfo(user))
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, subscriptions.ContentDispositionFilename(format)))
+}
+
+func subscriptionUserinfo(user users.User) string {
+	expire := int64(0)
+	if user.ExpiresAt != nil {
+		expire = user.ExpiresAt.UTC().Unix()
+	}
+	total := int64(0)
+	if user.QuotaMB > 0 {
+		total = int64(user.QuotaMB) * 1024 * 1024
+	}
+	return fmt.Sprintf("upload=0; download=0; total=%d; expire=%d", total, expire)
+}
+
+func subscriptionExpiryText(expiresAt *time.Time, loc *time.Location) string {
+	if expiresAt == nil {
+		return "Subscription: unlimited"
+	}
+	formatted := formatDateTimeValue(expiresAt, loc)
+	if expiresAt.Before(time.Now()) {
+		return "Subscription: expired at " + formatted
+	}
+	if expiresAt.Before(time.Now().Add(72 * time.Hour)) {
+		return "Expires at: " + formatted + " (expires soon)"
+	}
+	return "Expires at: " + formatted
+}
+
+func subscriptionExpiryTone(expiresAt *time.Time) string {
+	if expiresAt == nil {
+		return "ok"
+	}
+	now := time.Now()
+	if expiresAt.Before(now) {
+		return "expired"
+	}
+	if expiresAt.Before(now.Add(72 * time.Hour)) {
+		return "soon"
+	}
+	return "ok"
 }
 
 func (h *Handler) APIListNodes(w http.ResponseWriter, r *http.Request) {
@@ -646,12 +735,13 @@ func nodeInputFromForm(r *http.Request) nodes.CreateNodeInput {
 	}
 }
 
-func userInputFromForm(r *http.Request) users.CreateUserInput {
+func (h *Handler) userInputFromForm(r *http.Request) users.CreateUserInput {
 	return users.CreateUserInput{
 		Username:    r.FormValue("username"),
 		DisplayName: stringPtr(r.FormValue("display_name")),
 		Enabled:     boolFromForm(r, "enabled", true),
-		ExpiresAt:   parseDate(r.FormValue("expires_at")),
+		ExpiresAt:   parseDateTime(r.FormValue("expires_at"), h.appLocation),
+		QuotaMB:     intFromForm(r.FormValue("quota_mb")),
 		Notes:       stringPtr(r.FormValue("notes")),
 		NodeIDs:     r.Form["node_ids"],
 	}
@@ -669,11 +759,14 @@ func boolFromForm(r *http.Request, key string, fallback bool) bool {
 	return parsed
 }
 
-func parseDate(value string) *time.Time {
+func parseDateTime(value string, loc *time.Location) *time.Time {
 	if value == "" {
 		return nil
 	}
-	t, err := time.Parse("2006-01-02", value)
+	if loc == nil {
+		loc = time.UTC
+	}
+	t, err := time.ParseInLocation("2006-01-02T15:04", value, loc)
 	if err != nil {
 		return nil
 	}
@@ -736,6 +829,24 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func loadAppLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
+func formatDateTimeValue(t *time.Time, loc *time.Location) string {
+	if t == nil {
+		return "unlimited"
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format("2006-01-02 15:04 MST")
 }
 
 func (h *Handler) redirectWithFlash(w http.ResponseWriter, r *http.Request, path, message, level string) {
