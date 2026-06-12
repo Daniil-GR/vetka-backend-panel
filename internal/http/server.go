@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
 	"log/slog"
@@ -20,7 +21,12 @@ import (
 	"vetka-backend-panel/web"
 )
 
-func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) http.Handler {
+type App struct {
+	Handler          http.Handler
+	ExpiryReconciler *users.ExpiryReconciler
+}
+
+func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App {
 	appLocation := loadAppLocation(cfg.AppTimezone)
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
 		"mask":                handlers.Mask,
@@ -35,7 +41,11 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) http.
 	nodeManager := nodes.NewManager(nodeRepo, userRepo, nodes.NewAgentClient())
 	userSvc := users.NewService(userRepo)
 	subSvc := subscriptions.NewService(userRepo, cfg.AppEnv == "dev", cfg.SubscriptionProfileTitle, cfg.SubscriptionUpdateIntervalHours)
-	h := handlers.New(cfg, logger, tmpl, nodeRepo, nodeManager, userRepo, userSvc, subSvc)
+	expiryReconciler := users.NewExpiryReconciler(userRepo, func(ctx context.Context, nodeID string) error {
+		_, err := nodeManager.SyncNode(ctx, nodeID)
+		return err
+	}, logger, cfg.ExpiryReconcileInterval)
+	h := handlers.New(cfg, logger, tmpl, nodeRepo, nodeManager, expiryReconciler, userRepo, userSvc, subSvc)
 
 	r := chi.NewRouter()
 	r.Get("/static/*", func(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +86,7 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) http.
 		protected.Post("/users/{id}/nodes/{accessID}/disable", h.DisableUserNodeAccess)
 		protected.Post("/users/{id}/unassign-node", h.UnassignNode)
 		protected.Post("/users/{id}/sync", h.SyncUserNodes)
+		protected.Post("/users/reconcile-expired", h.ReconcileExpiredUsers)
 	})
 
 	r.Group(func(api chi.Router) {
@@ -97,9 +108,13 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) http.
 		api.Post("/api/users/{id}/unassign-node", h.APIUnassignNode)
 		api.Post("/api/users/{id}/sync", h.APISyncUser)
 		api.Get("/api/users/{id}/subscription", h.APIUserSubscription)
+		api.Post("/api/users/reconcile-expired", h.APIReconcileExpiredUsers)
 	})
 
-	return requestLog(logger, r)
+	return &App{
+		Handler:          requestLog(logger, r),
+		ExpiryReconciler: expiryReconciler,
+	}
 }
 
 func requestLog(logger *slog.Logger, next http.Handler) http.Handler {

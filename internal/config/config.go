@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -16,6 +17,8 @@ type Config struct {
 	SubscriptionPublicBaseURL       string
 	SubscriptionProfileTitle        string
 	SubscriptionUpdateIntervalHours int
+	ExpiryReconcileEnabled          bool
+	ExpiryReconcileInterval         time.Duration
 	DatabaseURL                     string
 	AdminUsername                   string
 	AdminPassword                   string
@@ -38,6 +41,8 @@ func Load() Config {
 		SubscriptionPublicBaseURL:       subscriptionBaseURL,
 		SubscriptionProfileTitle:        getenv("SUBSCRIPTION_PROFILE_TITLE", "Ветка VPN"),
 		SubscriptionUpdateIntervalHours: getenvInt("SUBSCRIPTION_UPDATE_INTERVAL_HOURS", 12),
+		ExpiryReconcileEnabled:          getenvBool("EXPIRY_RECONCILE_ENABLED", true),
+		ExpiryReconcileInterval:         getenvDuration("EXPIRY_RECONCILE_INTERVAL", time.Minute),
 		DatabaseURL:                     getenv("DATABASE_URL", "postgres://vetka:vetka@localhost:5432/vetka_backend?sslmode=disable"),
 		AdminUsername:                   getenv("ADMIN_USERNAME", "admin"),
 		AdminPassword:                   getenv("ADMIN_PASSWORD", "change-me"),
@@ -60,4 +65,28 @@ func getenvInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func getenvBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getenvDuration(key string, fallback time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

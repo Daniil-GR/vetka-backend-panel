@@ -23,28 +23,30 @@ import (
 )
 
 type Handler struct {
-	cfg         config.Config
-	appLocation *time.Location
-	logger      *slog.Logger
-	tmpl        *template.Template
-	nodeRepo    *nodes.Repository
-	nodeManager *nodes.Manager
-	userRepo    *users.Repository
-	userSvc     *users.Service
-	subSvc      *subscriptions.Service
+	cfg              config.Config
+	appLocation      *time.Location
+	logger           *slog.Logger
+	tmpl             *template.Template
+	nodeRepo         *nodes.Repository
+	nodeManager      *nodes.Manager
+	expiryReconciler *users.ExpiryReconciler
+	userRepo         *users.Repository
+	userSvc          *users.Service
+	subSvc           *subscriptions.Service
 }
 
-func New(cfg config.Config, logger *slog.Logger, tmpl *template.Template, nodeRepo *nodes.Repository, nodeManager *nodes.Manager, userRepo *users.Repository, userSvc *users.Service, subSvc *subscriptions.Service) *Handler {
+func New(cfg config.Config, logger *slog.Logger, tmpl *template.Template, nodeRepo *nodes.Repository, nodeManager *nodes.Manager, expiryReconciler *users.ExpiryReconciler, userRepo *users.Repository, userSvc *users.Service, subSvc *subscriptions.Service) *Handler {
 	return &Handler{
-		cfg:         cfg,
-		appLocation: loadAppLocation(cfg.AppTimezone),
-		logger:      logger,
-		tmpl:        tmpl,
-		nodeRepo:    nodeRepo,
-		nodeManager: nodeManager,
-		userRepo:    userRepo,
-		userSvc:     userSvc,
-		subSvc:      subSvc,
+		cfg:              cfg,
+		appLocation:      loadAppLocation(cfg.AppTimezone),
+		logger:           logger,
+		tmpl:             tmpl,
+		nodeRepo:         nodeRepo,
+		nodeManager:      nodeManager,
+		expiryReconciler: expiryReconciler,
+		userRepo:         userRepo,
+		userSvc:          userSvc,
+		subSvc:           subSvc,
 	}
 }
 
@@ -398,6 +400,15 @@ func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
 	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Affected nodes synced", "success")
 }
 
+func (h *Handler) ReconcileExpiredUsers(w http.ResponseWriter, r *http.Request) {
+	result, err := h.expiryReconciler.RunOnce(r.Context())
+	if err != nil {
+		h.redirectWithFlash(w, r, "/users", "Expired users reconcile finished with errors: "+formatExpiryReconcileResult(result), "error")
+		return
+	}
+	h.redirectWithFlash(w, r, "/users", "Expired users reconcile OK: "+formatExpiryReconcileResult(result), "success")
+}
+
 func (h *Handler) Subscription(w http.ResponseWriter, r *http.Request) {
 	user, userErr := h.userRepo.GetByToken(r.Context(), chi.URLParam(r, "token"))
 	if userErr != nil {
@@ -547,6 +558,15 @@ func (h *Handler) APIUserSubscription(w http.ResponseWriter, r *http.Request) {
 		"singbox_url":   base + "?format=sing-box",
 		"profile_title": h.cfg.SubscriptionProfileTitle,
 	}, nil)
+}
+
+func (h *Handler) APIReconcileExpiredUsers(w http.ResponseWriter, r *http.Request) {
+	result, err := h.expiryReconciler.RunOnce(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "result": result, "errors": result.Errors})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
 }
 
 func hasProtocolAccess(access []users.Access, protocol string) bool {
@@ -961,4 +981,17 @@ func formatNodeStatusFlash(status nodes.AgentStatusResponse) string {
 
 func formatSyncFlash(resp nodes.AgentResponse) string {
 	return "Sync OK: applied_version=" + strconv.FormatInt(resp.AppliedVersion, 10)
+}
+
+func formatExpiryReconcileResult(result users.ExpiryReconcileResult) string {
+	parts := []string{
+		"users_found=" + strconv.Itoa(result.UsersFound),
+		"nodes_affected=" + strconv.Itoa(result.NodesAffected),
+		"sync_success_count=" + strconv.Itoa(result.SyncSuccessCount),
+		"users_synced=" + strconv.Itoa(result.UsersSynced),
+	}
+	if len(result.Errors) > 0 {
+		parts = append(parts, "errors="+strings.Join(result.Errors, "; "))
+	}
+	return strings.Join(parts, ", ")
 }

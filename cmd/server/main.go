@@ -50,10 +50,15 @@ func main() {
 		return
 	}
 
+	app := panelhttp.NewServer(cfg, pool, logger)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           panelhttp.NewServer(cfg, pool, logger),
+		Handler:           app.Handler,
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	if cfg.ExpiryReconcileEnabled && app.ExpiryReconciler != nil {
+		go app.ExpiryReconciler.Run(ctx)
 	}
 
 	go func() {

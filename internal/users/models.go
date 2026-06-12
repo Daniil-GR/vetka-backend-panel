@@ -8,6 +8,7 @@ type User struct {
 	DisplayName       *string
 	Enabled           bool
 	ExpiresAt         *time.Time
+	ExpirySyncedAt    *time.Time
 	QuotaMB           int
 	SubscriptionToken string
 	Notes             *string

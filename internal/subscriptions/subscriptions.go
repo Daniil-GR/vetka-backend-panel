@@ -37,13 +37,18 @@ var (
 )
 
 type Service struct {
-	userRepo            *users.Repository
+	userRepo            subscriptionUserRepository
 	devMode             bool
 	profileTitle        string
 	updateIntervalHours int
 }
 
-func NewService(userRepo *users.Repository, devMode bool, profileTitle string, updateIntervalHours int) *Service {
+type subscriptionUserRepository interface {
+	GetByToken(ctx context.Context, token string) (users.User, error)
+	ActiveAccessForSubscription(ctx context.Context, userID string) ([]users.AccessWithNode, error)
+}
+
+func NewService(userRepo subscriptionUserRepository, devMode bool, profileTitle string, updateIntervalHours int) *Service {
 	if strings.TrimSpace(profileTitle) == "" {
 		profileTitle = DefaultProfileTitle
 	}

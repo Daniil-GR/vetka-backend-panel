@@ -13,6 +13,14 @@ type Repository struct {
 	pool *pgxpool.Pool
 }
 
+const activeNodeIDsForExpiredUserQuery = `select distinct n.id
+from user_node_access a
+join nodes n on n.id = a.node_id
+where a.user_id=$1
+  and a.enabled
+  and n.api_url <> ''
+order by n.id`
+
 func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
@@ -52,7 +60,7 @@ func (r *Repository) Count(ctx context.Context) (int, error) {
 }
 
 func (r *Repository) List(ctx context.Context) ([]User, error) {
-	rows, err := r.pool.Query(ctx, `select id, username, display_name, enabled, expires_at, quota_mb, subscription_token, notes, created_at, updated_at from users order by created_at desc`)
+	rows, err := r.pool.Query(ctx, `select id, username, display_name, enabled, expires_at, expiry_synced_at, quota_mb, subscription_token, notes, created_at, updated_at from users order by created_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +69,7 @@ func (r *Repository) List(ctx context.Context) ([]User, error) {
 }
 
 func (r *Repository) Get(ctx context.Context, id string) (User, error) {
-	rows, err := r.pool.Query(ctx, `select id, username, display_name, enabled, expires_at, quota_mb, subscription_token, notes, created_at, updated_at from users where id=$1`, id)
+	rows, err := r.pool.Query(ctx, `select id, username, display_name, enabled, expires_at, expiry_synced_at, quota_mb, subscription_token, notes, created_at, updated_at from users where id=$1`, id)
 	if err != nil {
 		return User{}, err
 	}
@@ -70,7 +78,7 @@ func (r *Repository) Get(ctx context.Context, id string) (User, error) {
 }
 
 func (r *Repository) GetByToken(ctx context.Context, token string) (User, error) {
-	rows, err := r.pool.Query(ctx, `select id, username, display_name, enabled, expires_at, quota_mb, subscription_token, notes, created_at, updated_at from users where subscription_token=$1`, token)
+	rows, err := r.pool.Query(ctx, `select id, username, display_name, enabled, expires_at, expiry_synced_at, quota_mb, subscription_token, notes, created_at, updated_at from users where subscription_token=$1`, token)
 	if err != nil {
 		return User{}, err
 	}
@@ -83,7 +91,7 @@ func (r *Repository) Create(ctx context.Context, in CreateUserInput, token strin
 }
 
 func (r *Repository) Update(ctx context.Context, id string, in UpdateUserInput) (User, error) {
-	rows, err := r.pool.Query(ctx, `update users set username=$2, display_name=$3, enabled=$4, expires_at=$5, quota_mb=$6, notes=$7 where id=$1 returning id, username, display_name, enabled, expires_at, quota_mb, subscription_token, notes, created_at, updated_at`,
+	rows, err := r.pool.Query(ctx, `update users set username=$2, display_name=$3, enabled=$4, expires_at=$5, quota_mb=$6, notes=$7 where id=$1 returning id, username, display_name, enabled, expires_at, expiry_synced_at, quota_mb, subscription_token, notes, created_at, updated_at`,
 		id, in.Username, in.DisplayName, in.Enabled, in.ExpiresAt, in.QuotaMB, in.Notes)
 	if err != nil {
 		return User{}, err
@@ -155,7 +163,9 @@ func (r *Repository) ActiveAccessForSubscription(ctx context.Context, userID str
 	rows, err := r.pool.Query(ctx, `select a.id, a.user_id, a.node_id, a.protocol_type, a.protocol_username, a.protocol_password, a.enabled, a.created_at, a.updated_at, n.node_id, n.name, n.domain, n.api_url, n.protocol_type, n.protocol_settings
 from user_node_access a
 join nodes n on n.id = a.node_id
-where a.user_id=$1 and a.enabled and n.enabled
+where a.user_id=$1
+  and a.enabled
+  and n.enabled
 order by n.name`, userID)
 	if err != nil {
 		return nil, err
@@ -166,6 +176,39 @@ order by n.name`, userID)
 		err := row.Scan(&a.ID, &a.UserID, &a.NodeID, &a.ProtocolType, &a.ProtocolUsername, &a.ProtocolPassword, &a.Enabled, &a.CreatedAt, &a.UpdatedAt, &a.AgentNodeID, &a.NodeName, &a.NodeDomain, &a.NodeAPIURL, &a.NodeProtocolType, &a.NodeProtocolSettingsJSON)
 		return a, err
 	})
+}
+
+func (r *Repository) UsersPendingExpiryReconcile(ctx context.Context) ([]User, error) {
+	rows, err := r.pool.Query(ctx, `select id, username, display_name, enabled, expires_at, expiry_synced_at, quota_mb, subscription_token, notes, created_at, updated_at
+from users
+where enabled
+  and expires_at is not null
+  and expires_at <= now()
+  and (expiry_synced_at is null or expiry_synced_at < expires_at)
+order by expires_at asc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, scanUser)
+}
+
+func (r *Repository) ActiveNodeIDsForExpiredUser(ctx context.Context, userID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, activeNodeIDsForExpiredUserQuery, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+		var nodeID string
+		err := row.Scan(&nodeID)
+		return nodeID, err
+	})
+}
+
+func (r *Repository) MarkExpirySynced(ctx context.Context, userID string) error {
+	_, err := r.pool.Exec(ctx, `update users set expiry_synced_at=now() where id=$1`, userID)
+	return err
 }
 
 type AccessWithNode struct {
@@ -179,12 +222,12 @@ type AccessWithNode struct {
 }
 
 func IsExpired(expiresAt *time.Time) bool {
-	return expiresAt != nil && expiresAt.Before(time.Now())
+	return expiresAt != nil && !expiresAt.After(time.Now())
 }
 
 func scanUser(row pgx.CollectableRow) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Enabled, &u.ExpiresAt, &u.QuotaMB, &u.SubscriptionToken, &u.Notes, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Enabled, &u.ExpiresAt, &u.ExpirySyncedAt, &u.QuotaMB, &u.SubscriptionToken, &u.Notes, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 
@@ -203,7 +246,7 @@ type executor interface {
 }
 
 func createUserWithQuerier(ctx context.Context, db queryer, in CreateUserInput, token string) (User, error) {
-	rows, err := db.Query(ctx, `insert into users(username, display_name, enabled, expires_at, quota_mb, subscription_token, notes) values($1,$2,$3,$4,$5,$6,$7) returning id, username, display_name, enabled, expires_at, quota_mb, subscription_token, notes, created_at, updated_at`,
+	rows, err := db.Query(ctx, `insert into users(username, display_name, enabled, expires_at, quota_mb, subscription_token, notes) values($1,$2,$3,$4,$5,$6,$7) returning id, username, display_name, enabled, expires_at, expiry_synced_at, quota_mb, subscription_token, notes, created_at, updated_at`,
 		in.Username, in.DisplayName, in.Enabled, in.ExpiresAt, in.QuotaMB, token, in.Notes)
 	if err != nil {
 		return User{}, err

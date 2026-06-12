@@ -9,7 +9,7 @@
 <body>
   <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
   <main>
-    <h1>Users</h1>
+    <div class="toolbar"><h1>Users</h1><form method="post" action="/users/reconcile-expired"><button>Reconcile expired users now</button></form></div>
     {{if .Flash}}<div class="flash {{.FlashLevel}}">{{.Flash}}</div>{{end}}
     <section class="panel">
       <h2>Create User</h2>

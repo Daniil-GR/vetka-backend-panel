@@ -132,4 +132,11 @@ alter table users
   add column if not exists quota_mb integer not null default 0;
 `,
 	},
+	{
+		Version: "005_user_expiry_synced_at",
+		SQL: `
+alter table users
+  add column if not exists expiry_synced_at timestamptz;
+`,
+	},
 }

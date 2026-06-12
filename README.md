@@ -199,6 +199,16 @@ upload=0; download=0; total=<bytes>; expire=<unix>
 
 `expire` always uses the exact Unix timestamp from `expires_at.UTC()`. The panel does not apply date-only or end-of-day expansion.
 
+Expired user revoke:
+
+- the subscription endpoint stops returning active configs immediately after `expires_at <= now()`
+- the expiry reconciler periodically syncs affected nodes
+- expired users are excluded from desired state
+- Node Agent removes expired credentials on the next successful sync
+- old cached client configs stop working after server-side credentials are removed
+- the expiry reconciler syncs affected assigned nodes even if a node is hidden from generated subscriptions via `node.enabled=false`
+- this is user-level revoke, not node-level emergency revoke
+
 The default profile title is `Ветка VPN`.
 
 ## API For Future Telegram Bot
@@ -223,6 +233,7 @@ POST /api/users/{id}/disable
 POST /api/users/{id}/assign-node
 POST /api/users/{id}/unassign-node
 POST /api/users/{id}/sync
+POST /api/users/reconcile-expired
 GET  /api/users/{id}/subscription
 ```
 
@@ -243,6 +254,8 @@ Admin UI should be served behind HTTPS in production. In HTTPS mode only `80/443
 The subscription domain should only expose `/sub/*`. Requests like `https://sub2.vetka.tech/login` should return `404`.
 
 Disabling a node hides it from generated subscriptions. Existing client configs may keep working until the client refreshes the subscription. This patch does not force an empty revoke sync for `node.enabled=false`.
+
+`node.enabled=false` is not an emergency revoke. It hides the node from generated subscriptions, and existing cached client configs may keep working until the client refreshes.
 
 TODO: add encryption at rest for node secrets using `APP_SECRET`.
 
@@ -271,6 +284,8 @@ SUBSCRIPTION_PUBLIC_BASE_URL=https://sub2.vetka.tech
 SUBSCRIPTION_PROFILE_TITLE=Ветка VPN
 SUBSCRIPTION_UPDATE_INTERVAL_HOURS=12
 APP_TIMEZONE=Europe/Moscow
+EXPIRY_RECONCILE_ENABLED=true
+EXPIRY_RECONCILE_INTERVAL=1m
 ```
 
 Useful deployment commands:
