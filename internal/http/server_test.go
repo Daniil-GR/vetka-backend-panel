@@ -1,9 +1,23 @@
 package http
 
 import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
+
+type stubPinger struct {
+	err error
+}
+
+func (s stubPinger) Ping(context.Context) error {
+	return s.err
+}
 
 func TestFormatDateTimeInput(t *testing.T) {
 	loc := loadAppLocation("Europe/Moscow")
@@ -20,5 +34,33 @@ func TestFormatDateTime(t *testing.T) {
 	got := formatDateTime(&value, loc)
 	if got != "2026-07-11 14:00 MSK" {
 		t.Fatalf("unexpected formatted datetime: %s", got)
+	}
+}
+
+func TestReadyHandlerOK(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	readyHandler(stubPinger{}, slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	if rec.Body.String() != "ready\n" {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestReadyHandlerDBUnavailable(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	readyHandler(stubPinger{err: errors.New("dial failed")}, slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	if rec.Body.String() != "database unavailable\n" {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
 	}
 }

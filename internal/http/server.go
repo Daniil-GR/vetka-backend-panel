@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -24,6 +25,10 @@ import (
 type App struct {
 	Handler          http.Handler
 	ExpiryReconciler *users.ExpiryReconciler
+}
+
+type dbPinger interface {
+	Ping(context.Context) error
 }
 
 func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App {
@@ -51,6 +56,12 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 	r.Get("/static/*", func(w http.ResponseWriter, r *http.Request) {
 		http.FileServer(http.FS(web.FS)).ServeHTTP(w, r)
 	})
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	r.Get("/ready", readyHandler(pool, logger))
 	r.Get("/sub/{token}", h.Subscription)
 	r.Get("/login", h.LoginPage)
 	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +125,41 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 	return &App{
 		Handler:          requestLog(logger, r),
 		ExpiryReconciler: expiryReconciler,
+	}
+}
+
+func readyHandler(pinger dbPinger, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := pinger.Ping(r.Context()); err != nil {
+			if logger != nil {
+				logger.Warn("database not ready", "error", sanitizeReadyError(err))
+			}
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("database unavailable\n"))
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready\n"))
+	}
+}
+
+func sanitizeReadyError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var timeout interface{ Timeout() bool }
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "context canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline exceeded"
+	case errors.As(err, &timeout) && timeout.Timeout():
+		return "timeout"
+	default:
+		return "ping failed"
 	}
 }
 

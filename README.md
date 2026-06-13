@@ -43,7 +43,7 @@ The default `docker-compose.yml` keeps both PostgreSQL and the backend on the in
 Authorization: Bearer <ADMIN_API_TOKEN>
 ```
 
-For HTTPS deployments, the repository also includes a `caddy` service and [Caddyfile](C:/Users/79293/Documents/VetkaBackendPanel/Caddyfile). The intended production split is:
+For HTTPS deployments, the repository also includes a `caddy` service and `Caddyfile`. The intended production split is:
 
 - `panel.vetka.tech`: admin UI, login, nodes, users, API
 - `sub2.vetka.tech`: subscription delivery only under `/sub/*`
@@ -265,9 +265,11 @@ Never commit real `.env` files or production secrets.
 
 The repository includes:
 
-- [install.sh](C:/Users/79293/Documents/VetkaBackendPanel/install.sh): install dependencies, generate secrets, create `.env`, manage `docker-compose.override.yml`, optionally enable Caddy HTTPS, and start the stack.
-- [update.sh](C:/Users/79293/Documents/VetkaBackendPanel/update.sh): fetch, confirm target revision, reset to `origin/main`, rebuild containers in the same HTTPS or direct HTTP mode stored in `.env`, and check health.
-- [uninstall.sh](C:/Users/79293/Documents/VetkaBackendPanel/uninstall.sh): stop containers and optionally remove data and application files.
+- `backup.sh`: create, verify, and list sensitive backup archives containing the PostgreSQL dump and runtime configuration files.
+- `restore.sh`: verify and restore a backup archive on the current or a new server.
+- `install.sh`: install dependencies, generate secrets, create `.env`, manage `docker-compose.override.yml`, optionally enable Caddy HTTPS, and start the stack.
+- `update.sh`: fetch, confirm target revision, reset to `origin/main`, rebuild containers in the same HTTPS or direct HTTP mode stored in `.env`, and check health.
+- `uninstall.sh`: stop containers and optionally remove data and application files.
 
 The installer keeps PostgreSQL private, can configure UFW, and supports either:
 
@@ -286,6 +288,11 @@ SUBSCRIPTION_UPDATE_INTERVAL_HOURS=12
 APP_TIMEZONE=Europe/Moscow
 EXPIRY_RECONCILE_ENABLED=true
 EXPIRY_RECONCILE_INTERVAL=1m
+BACKUP_ENABLED=true
+BACKUP_DIR=/var/backups/vetka-backend-panel
+BACKUP_RETENTION_DAYS=14
+BACKUP_ON_CALENDAR=*-*-* 03:30:00 UTC
+BACKUP_BEFORE_UPDATE=true
 ```
 
 Useful deployment commands:
@@ -295,7 +302,167 @@ cd /opt/vetka-backend-panel
 docker compose ps
 docker compose logs --tail=100 backend
 docker compose exec -T postgres pg_isready -U vetka -d vetka_backend
+curl -fsSL http://127.0.0.1:8080/health
 ```
+
+## Backup Architecture
+
+The PostgreSQL dump is the primary backup artifact for restoring the Backend Panel state. It contains users, subscription tokens, nodes, node secrets, assignments, protocol credentials, expiry state, sync versions, sync history, and migration state.
+
+`backup.sh` stores:
+
+- a PostgreSQL custom-format dump created through the Compose-managed `postgres` service
+- `.env`, `Caddyfile`, and `docker-compose.override.yml` when those files exist
+- a reference copy of `docker-compose.yml`
+- `metadata.json`
+- `SHA256SUMS`
+
+The backup does not include `.git`, source code history, Docker images, PostgreSQL raw volumes, logs, or Caddy certificate volumes.
+
+## Manual Backup
+
+Create a backup:
+
+```bash
+cd /opt/vetka-backend-panel
+./backup.sh create
+```
+
+Useful options:
+
+```bash
+./backup.sh create --output-dir /var/backups/vetka-backend-panel --retention-days 30
+./backup.sh create --no-retention
+./backup.sh list
+```
+
+The archive name looks like:
+
+```text
+vetka-backend-panel-20260613T033000Z-<short_git_sha>.tar.gz
+```
+
+## Automatic Backups
+
+When `BACKUP_ENABLED=true`, the installer creates:
+
+- `vetka-backend-backup.service`
+- `vetka-backend-backup.timer`
+
+The timer uses `BACKUP_ON_CALENDAR`, runs with `Persistent=true`, and stores archives in `BACKUP_DIR`. By default it creates a daily backup at `03:30 UTC` and keeps `14` days of project backup archives.
+
+Check timer status with:
+
+```bash
+systemctl status vetka-backend-backup.timer
+systemctl list-timers vetka-backend-backup.timer
+systemctl start vetka-backend-backup.service
+journalctl -u vetka-backend-backup.service
+```
+
+If `BACKUP_BEFORE_UPDATE=true`, `update.sh` creates a fresh backup before resetting to `origin/main`. Use `./update.sh --skip-backup` or `SKIP_BACKUP_BEFORE_UPDATE=true` only when you explicitly accept the risk.
+
+## Verify Backup
+
+Verification does not modify the system:
+
+```bash
+./backup.sh verify /path/to/vetka-backend-panel-....tar.gz
+```
+
+Verification checks:
+
+- archive readability
+- archive path safety
+- required files
+- `metadata.json`
+- `SHA256SUMS`
+- `database.dump` through `pg_restore --list`
+
+`restore.sh --verify-only` runs the same integrity checks as `backup.sh verify`.
+
+Archive verification does not require a running PostgreSQL service or a live Compose stack. It uses a suitable local `pg_restore` when available; otherwise it can fall back to the PostgreSQL Docker image declared in `docker-compose.yml`.
+
+## Restore On The Same Server
+
+Run:
+
+```bash
+cd /opt/vetka-backend-panel
+./restore.sh --archive /path/to/vetka-backend-panel-....tar.gz
+```
+
+Without `--yes`, the script requires a literal `RESTORE` confirmation. Before a destructive restore it creates a safety backup of the current installation unless `--skip-pre-restore-backup` is explicitly set.
+
+Supported restore modes:
+
+```bash
+./restore.sh --archive /path/to/backup.tar.gz --verify-only
+./restore.sh --archive /path/to/backup.tar.gz --db-only --yes
+./restore.sh --archive /path/to/backup.tar.gz --config-only --yes
+```
+
+Full restore restores `.env`, `Caddyfile`, and `docker-compose.override.yml` when they are present in the archive, but it does not automatically replace the current repository `docker-compose.yml` with the archived reference copy.
+
+The backup timer is installed or updated only after the restore completes successfully and the internal readiness check passes.
+
+## Restore On A New Server
+
+Bootstrap Docker, Compose, `jq`, and `tar` first, then clone the repository and run restore. On a fresh Debian or Ubuntu host:
+
+```bash
+apt-get update
+apt-get install -y ca-certificates curl git jq tar docker.io docker-compose-v2
+systemctl enable --now docker
+```
+
+Then:
+
+```bash
+git clone https://github.com/Daniil-GR/vetka-backend-panel.git /opt/vetka-backend-panel
+cd /opt/vetka-backend-panel
+
+./restore.sh --archive /path/to/vetka-backend-panel-....tar.gz
+```
+
+The restore script recreates the PostgreSQL database from the dump, runs the project migrations, brings the Compose stack back up, and checks the internal `/ready` endpoint from inside the `backend` container. `/health` remains a liveness endpoint only.
+
+## Backend IP Migration
+
+After moving the Backend Panel to a new server or IP:
+
+- keep the existing `nodeId` and `nodeSecret`
+- allow the new Backend IP in every Node Agent `backendAllowedIps`
+- update UFW or equivalent firewall rules for port `2222`
+- only then run manual node sync
+
+Restore does not automatically sync all nodes after recovery.
+
+## Disaster Recovery Checklist
+
+- create backups regularly and verify them
+- copy backup archives to protected external storage
+- keep the Git repository or release artifact available for rebuild
+- restore the panel from the latest verified archive
+- confirm PostgreSQL is healthy
+- confirm backend `/health`
+- confirm admin login
+- update Node Agent allowlists if the Backend IP changed
+- run targeted node sync only after agent-side allowlists are ready
+
+## Security Considerations
+
+Backup archives contain `.env`, admin credentials, subscription tokens, and node secrets. Store them in protected external storage with strict access control. The archive should remain `0600`, the backup directory `0700`, and temporary extraction directories `0700`.
+
+The archive is not encrypted by `backup.sh`. Use encrypted external storage or encrypt the archive separately before moving it off-host.
+
+Backups stored only on the same server do not protect against loss of that server. Copy them off-host.
+
+Caddy certificates are not included by default. They should be obtained again after restore.
+
+PostgreSQL is not published publicly. All backup and restore actions use the internal Compose-managed `postgres` container instead of opening `5432`.
+
+Restore success does not require working public DNS. The primary post-restore readiness check is an internal request from inside the `backend` container to `http://127.0.0.1:8080/ready`. A public `PANEL_PUBLIC_BASE_URL/ready` check is useful, but it is only a secondary warning signal because DNS and HTTPS issuance may still be converging after migration.
 
 ## Future
 

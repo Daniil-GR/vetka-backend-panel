@@ -6,6 +6,9 @@ ENV_FILE="$APP_DIR/.env"
 OVERRIDE_FILE="$APP_DIR/docker-compose.override.yml"
 CADDY_FILE="$APP_DIR/Caddyfile"
 REPO_URL="${REPO_URL:-https://github.com/Daniil-GR/vetka-backend-panel.git}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/scripts/backup-common.sh"
 PANEL_DOMAIN=""
 SUBSCRIPTION_DOMAIN=""
 ADMIN_USERNAME="admin"
@@ -15,6 +18,11 @@ SUBSCRIPTION_PUBLIC_BASE_URL=""
 ENABLE_HTTPS="yes"
 EXPOSE_8080="no"
 CONFIGURE_UFW="yes"
+BACKUP_ENABLED="${BACKUP_ENABLED:-}"
+BACKUP_DIR="${BACKUP_DIR:-}"
+BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-}"
+BACKUP_ON_CALENDAR="${BACKUP_ON_CALENDAR:-}"
+BACKUP_BEFORE_UPDATE="${BACKUP_BEFORE_UPDATE:-}"
 
 print_help() {
   cat <<'EOF'
@@ -179,12 +187,41 @@ if [[ "$CONFIGURE_UFW" == "yes" ]]; then
     CONFIGURE_UFW="no"
   fi
 fi
+if [[ -z "$BACKUP_ENABLED" ]]; then
+  if ! confirm 'Configure automatic backups?' 'Y'; then
+    BACKUP_ENABLED="false"
+  else
+    BACKUP_ENABLED="true"
+  fi
+fi
+if [[ "$BACKUP_ENABLED" == "true" ]]; then
+  if [[ -z "$BACKUP_DIR" ]]; then
+    BACKUP_DIR="$(ask 'Backup directory' '/var/backups/vetka-backend-panel')"
+  fi
+  if [[ -z "$BACKUP_RETENTION_DAYS" ]]; then
+    BACKUP_RETENTION_DAYS="$(ask 'Retention days' '14')"
+  fi
+  if [[ -z "$BACKUP_ON_CALENDAR" ]]; then
+    BACKUP_ON_CALENDAR="$(ask 'Backup schedule' '*-*-* 03:30:00 UTC')"
+  fi
+  if [[ -z "$BACKUP_BEFORE_UPDATE" ]]; then
+    if ! confirm 'Backup before update?' 'Y'; then
+      BACKUP_BEFORE_UPDATE="false"
+    else
+      BACKUP_BEFORE_UPDATE="true"
+    fi
+  fi
+fi
 if [[ -z "$PANEL_DOMAIN" ]]; then
   PANEL_DOMAIN="panel.localhost"
 fi
 if [[ -z "$SUBSCRIPTION_DOMAIN" ]]; then
   SUBSCRIPTION_DOMAIN="sub.localhost"
 fi
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/vetka-backend-panel}"
+BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+BACKUP_ON_CALENDAR="${BACKUP_ON_CALENDAR:-*-*-* 03:30:00 UTC}"
+BACKUP_BEFORE_UPDATE="${BACKUP_BEFORE_UPDATE:-true}"
 
 apt-get update
 apt-get install -y ca-certificates curl git jq openssl docker.io docker-compose-v2 ufw
@@ -201,6 +238,8 @@ if [[ -d "$APP_DIR/.git" ]]; then
 else
   git clone "$REPO_URL" "$APP_DIR"
 fi
+chmod 755 "$APP_DIR"/backup.sh "$APP_DIR"/restore.sh "$APP_DIR"/install.sh "$APP_DIR"/update.sh "$APP_DIR"/uninstall.sh 2>/dev/null || true
+find "$APP_DIR/scripts" "$APP_DIR/tests" -type f -name '*.sh' -exec chmod 755 {} + 2>/dev/null || true
 
 ADMIN_PASSWORD="$(random_secret)"
 ADMIN_API_TOKEN="$(random_secret)"
@@ -230,6 +269,11 @@ PANEL_DOMAIN=$PANEL_DOMAIN
 SUBSCRIPTION_DOMAIN=$SUBSCRIPTION_DOMAIN
 ENABLE_HTTPS=$ENABLE_HTTPS
 EXPOSE_8080=$EXPOSE_8080
+BACKUP_ENABLED=$BACKUP_ENABLED
+BACKUP_DIR=$BACKUP_DIR
+BACKUP_RETENTION_DAYS=$BACKUP_RETENTION_DAYS
+BACKUP_ON_CALENDAR=$BACKUP_ON_CALENDAR
+BACKUP_BEFORE_UPDATE=$BACKUP_BEFORE_UPDATE
 EOF
 chmod 600 "$ENV_FILE"
 write_override_file
@@ -254,6 +298,14 @@ fi
 (cd "$APP_DIR" && docker compose ps)
 (cd "$APP_DIR" && docker compose exec -T postgres pg_isready -U vetka -d vetka_backend)
 curl -fsSL "${PANEL_PUBLIC_BASE_URL%/}/login" >/dev/null 2>&1 || true
+
+if [[ "$BACKUP_ENABLED" == "true" ]]; then
+  BACKUP_DIR="$(vetka_assert_safe_backup_dir "$BACKUP_DIR")"
+  vetka_ensure_dir_mode "$BACKUP_DIR" 700
+  vetka_install_backup_units "$APP_DIR" "$BACKUP_DIR" "$BACKUP_ON_CALENDAR"
+else
+  vetka_remove_backup_units
+fi
 
 echo "Install completed."
 echo "Panel URL: $PANEL_PUBLIC_BASE_URL"
