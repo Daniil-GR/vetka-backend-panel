@@ -38,8 +38,13 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 		"formatTime":          func(t any) string { return formatTime(t, appLocation) },
 		"formatDateTime":      func(t *time.Time) string { return formatDateTime(t, appLocation) },
 		"formatDateTimeInput": func(t *time.Time) string { return formatDateTimeInput(t, appLocation) },
+		"isUserExpired":       handlers.IsUserExpired,
+		"isUserExpiringSoon":  handlers.IsUserExpiringSoon,
+		"timeRemaining":       func(t *time.Time) string { return handlers.TimeRemaining(t) },
+		"truncateText":        handlers.TruncateText,
+		"safeJSONPreview":     handlers.SafeJSONPreview,
 		"join":                strings.Join,
-	}).ParseFS(web.FS, "templates/*.html"))
+	}).ParseFS(web.FS, "templates/*.html", "templates/partials/*.html"))
 
 	nodeRepo := nodes.NewRepository(pool)
 	userRepo := users.NewRepository(pool)
@@ -64,18 +69,13 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 	r.Get("/ready", readyHandler(pool, logger))
 	r.Get("/sub/{token}", h.Subscription)
 	r.Get("/login", h.LoginPage)
-	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
-		if middleware.Login(cfg, w, r) {
-			http.Redirect(w, r, "/", http.StatusFound)
-			return
-		}
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
-	})
+	r.Post("/login", h.Login)
 
 	r.Group(func(protected chi.Router) {
 		protected.Use(func(next http.Handler) http.Handler { return middleware.UIAuth(cfg, next) })
 		protected.Get("/", h.Dashboard)
 		protected.Get("/nodes", h.Nodes)
+		protected.Get("/nodes/{id}", h.NodeDetail)
 		protected.Get("/nodes/{id}/edit", h.EditNodePage)
 		protected.Post("/nodes", h.CreateNode)
 		protected.Post("/nodes/{id}", h.UpdateNode)

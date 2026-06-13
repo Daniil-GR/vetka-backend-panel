@@ -1,23 +1,35 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css">
-  <title>Node Created</title>
-</head>
-<body>
-  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
-  <main>
-    <h1>Node created</h1>
-    <p>Store this secret now. After this screen the UI shows only a masked value.</p>
-    <pre>NODE_ID="{{.Node.NodeID}}"
+{{define "node_created.html"}}{{template "app-layout-open" .}}{{template "node-created-content" .}}{{template "app-layout-close" .}}{{end}}
+
+{{define "node-created-content"}}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">One-Time Secret</p>
+    <h1>Node Created</h1>
+    <p class="page-intro">Store the secret now. After this screen the panel only shows a masked value.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button button-secondary" href="/nodes/{{.Node.ID}}">Open Node Detail</a>
+    <a class="button button-ghost" href="/nodes">Back to Nodes</a>
+  </div>
+</section>
+
+<section class="panel danger-zone">
+  <div class="panel__header"><div><h2>Secret Handling</h2><p>The following values are shown once. They are not stored in localStorage and should not be pasted into third-party tools.</p></div></div>
+  <div class="stack">
+    <div class="copy-field"><label>NODE_ID</label><div class="copy-field__row"><input type="text" readonly value="{{.Node.NodeID}}"><button type="button" class="button button-secondary" data-copy-text="{{.Node.NodeID}}"><span data-copy-label>Copy</span></button></div></div>
+    <div class="copy-field"><label>NODE_SECRET</label><div class="copy-field__row"><input type="text" readonly value="{{.Node.NodeSecret}}"><button type="button" class="button button-secondary" data-copy-text="{{.Node.NodeSecret}}"><span data-copy-label>Copy</span></button></div></div>
+    <div class="copy-field"><label>Environment Block</label><div class="copy-field__row"><textarea readonly rows="7">NODE_ID="{{.Node.NodeID}}"
 NODE_SECRET="{{.Node.NodeSecret}}"
 PROTOCOL_TYPE="{{.Node.ProtocolType}}"
 NODE_PORT="{{.DefaultPort}}"
 NODE_LISTEN_HOST="0.0.0.0"
-BACKEND_PANEL_IP="{{.BackendIP}}"</pre>
-    <pre>git clone https://github.com/Daniil-GR/vetka-node-agent.git /opt/vetka-node-agent-src
+BACKEND_PANEL_IP="{{.BackendIP}}"</textarea><button type="button" class="button button-secondary" data-copy-text='NODE_ID="{{.Node.NodeID}}"
+NODE_SECRET="{{.Node.NodeSecret}}"
+PROTOCOL_TYPE="{{.Node.ProtocolType}}"
+NODE_PORT="{{.DefaultPort}}"
+NODE_LISTEN_HOST="0.0.0.0"
+BACKEND_PANEL_IP="{{.BackendIP}}"'><span data-copy-label>Copy All</span></button></div></div>
+    <div class="copy-field"><label>Install Command</label><div class="copy-field__row"><textarea readonly rows="9">git clone https://github.com/Daniil-GR/vetka-node-agent.git /opt/vetka-node-agent-src
 cd /opt/vetka-node-agent-src
 
 sudo env \
@@ -27,9 +39,18 @@ sudo env \
   NODE_PORT="{{.DefaultPort}}" \
   NODE_LISTEN_HOST="0.0.0.0" \
   BACKEND_PANEL_IP="{{.BackendIP}}" \
-  bash install.sh</pre>
-    <p><strong>Production:</strong> port {{.DefaultPort}} should be open only from the Backend Panel IP.</p>
-    <a class="button" href="/nodes">Back to nodes</a>
-  </main>
-</body>
-</html>
+  bash install.sh</textarea><button type="button" class="button button-secondary" data-copy-text='git clone https://github.com/Daniil-GR/vetka-node-agent.git /opt/vetka-node-agent-src
+cd /opt/vetka-node-agent-src
+
+sudo env \
+  NODE_ID="{{.Node.NodeID}}" \
+  NODE_SECRET="{{.Node.NodeSecret}}" \
+  PROTOCOL_TYPE="{{.Node.ProtocolType}}" \
+  NODE_PORT="{{.DefaultPort}}" \
+  NODE_LISTEN_HOST="0.0.0.0" \
+  BACKEND_PANEL_IP="{{.BackendIP}}" \
+  bash install.sh'><span data-copy-label>Copy Install</span></button></div></div>
+  </div>
+  <p class="hint">Production UFW reminder: allow port {{.DefaultPort}} only from backend IP {{.BackendIP}}.</p>
+</section>
+{{end}}

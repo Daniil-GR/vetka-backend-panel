@@ -1,34 +1,94 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css">
-  <title>Vetka Users</title>
-</head>
-<body>
-  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
-  <main>
-    <div class="toolbar"><h1>Users</h1><form method="post" action="/users/reconcile-expired"><button>Reconcile expired users now</button></form></div>
-    {{if .Flash}}<div class="flash {{.FlashLevel}}">{{.Flash}}</div>{{end}}
-    <section class="panel">
-      <h2>Create User</h2>
-      <form method="post" action="/users" class="grid-form">
-        <label>Username <input name="username" required></label>
-        <label>Display name <input name="display_name"></label>
-        <label>Expires at <input type="datetime-local" name="expires_at"></label>
-        <label>Quota MB <input type="number" name="quota_mb" min="0" value="0"></label>
-        <label>Notes <input name="notes"></label>
-        <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
-        <p class="hint">Quota MB 0 keeps metadata unlimited and leaves upload/download at 0.</p>
-        <fieldset><legend>Assign nodes</legend>{{range .Nodes}}<label class="check"><input type="checkbox" name="node_ids" value="{{.ID}}"> {{.Name}} ({{.ProtocolType}})</label>{{else}}No nodes available.{{end}}</fieldset>
-        <button type="submit">Create</button>
-      </form>
-    </section>
-    <table>
-      <thead><tr><th>Username</th><th>Display</th><th>Enabled</th><th>Expires</th><th>Subscription token</th><th></th></tr></thead>
-      <tbody>{{range .Users}}<tr><td><a href="/users/{{.ID}}">{{.Username}}</a></td><td>{{if .DisplayName}}{{.DisplayName}}{{end}}</td><td>{{.Enabled}}</td><td>{{formatTime .ExpiresAt}}</td><td>{{mask .SubscriptionToken}}</td><td><form method="post" action="/users/{{.ID}}/delete"><button class="danger">Delete</button></form></td></tr>{{else}}<tr><td colspan="6">No users yet.</td></tr>{{end}}</tbody>
+{{define "users.html"}}{{template "app-layout-open" .}}{{template "users-content" .}}{{template "app-layout-close" .}}{{end}}
+
+{{define "users-content"}}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Access Control</p>
+    <h1>Users</h1>
+    <p class="page-intro">{{len .UserItems}} users in the current view. Creation, expiry revoke, and assignment changes stay server-rendered.</p>
+  </div>
+  <div class="page-actions">
+    <button type="button" class="button button-primary" data-dialog-open="create-user-dialog">Create User</button>
+    <form method="post" action="/users/reconcile-expired"><button class="button button-secondary" type="submit">Reconcile Expired Users</button></form>
+  </div>
+</section>
+
+<section class="panel filters-panel">
+  <form method="get" action="/users" class="filter-bar">
+    <label class="field field-search"><span>Search</span><input type="search" name="q" value="{{.Search}}" placeholder="Username or display name"></label>
+    <label class="field"><span>Status</span>
+      <select name="status">
+        <option value="all" {{if or (eq .Filter "") (eq .Filter "all")}}selected{{end}}>All</option>
+        <option value="active" {{if eq .Filter "active"}}selected{{end}}>Active</option>
+        <option value="expired" {{if eq .Filter "expired"}}selected{{end}}>Expired</option>
+        <option value="disabled" {{if eq .Filter "disabled"}}selected{{end}}>Disabled</option>
+        <option value="expires-soon" {{if eq .Filter "expires-soon"}}selected{{end}}>Expires Soon</option>
+      </select>
+    </label>
+    <label class="field"><span>Sort</span>
+      <select name="sort">
+        <option value="username" {{if eq .Sort "username"}}selected{{end}}>Username</option>
+        <option value="expires_at" {{if eq .Sort "expires_at"}}selected{{end}}>Expires At</option>
+        <option value="created_at" {{if eq .Sort "created_at"}}selected{{end}}>Created At</option>
+      </select>
+    </label>
+    <button type="submit" class="button button-secondary">Apply</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Status</th><th>Expires At</th><th>Assigned Nodes</th><th>Quota</th><th>Token</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{range .UserItems}}
+        <tr>
+          <td><a class="row-link" href="/users/{{.User.ID}}"><strong>{{.User.Username}}</strong><span>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}No display name{{end}}</span></a></td>
+          <td><span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span></td>
+          <td>{{if .User.ExpiresAt}}{{formatTime .User.ExpiresAt}}{{else}}Unlimited{{end}}</td>
+          <td>{{.AssignedNodeCount}}</td>
+          <td>{{if gt .User.QuotaMB 0}}{{.User.QuotaMB}} MB{{else}}Unlimited{{end}}</td>
+          <td><code>{{mask .User.SubscriptionToken}}</code></td>
+          <td class="table-actions">
+            <a class="button button-ghost" href="/users/{{.User.ID}}">Open</a>
+            <form method="post" action="/users/{{.User.ID}}/delete" data-confirm="Delete this user and sync affected nodes?"><button class="button button-danger" type="submit">Delete</button></form>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7"><div class="empty-state empty-state--compact"><h3>No users match this view</h3><p>Try a different filter or create a new user.</p></div></td></tr>
+        {{end}}
+      </tbody>
     </table>
-  </main>
-</body>
-</html>
+  </div>
+</section>
+
+<dialog class="dialog" id="create-user-dialog">
+  <div class="dialog__header">
+    <div><p class="eyebrow">Create User</p><h2>Provision a new subscription</h2></div>
+    <button type="button" class="icon-button" data-dialog-close aria-label="Close dialog">x</button>
+  </div>
+  <form method="post" action="/users" class="form-grid">
+    <label class="field"><span>Username</span><input name="username" required></label>
+    <label class="field"><span>Display Name</span><input name="display_name"></label>
+    <label class="field"><span>Expires At</span><input type="datetime-local" name="expires_at"><small>Empty means unlimited. Timezone: {{.AppTimezone}}.</small></label>
+    <label class="field"><span>Quota MB</span><input type="number" name="quota_mb" min="0" value="0"><small><code>0</code> keeps metadata unlimited.</small></label>
+    <label class="field field-span-2"><span>Notes</span><input name="notes"></label>
+    <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" checked><span>Enabled</span></label>
+    <fieldset class="selection-grid field-span-2">
+      <legend>Assign Nodes</legend>
+      {{range .Nodes}}
+      <label class="selection-card">
+        <input type="checkbox" name="node_ids" value="{{.ID}}">
+        <span><strong>{{.Name}}</strong><small>{{.Domain}} - {{.ProtocolType}}</small></span>
+      </label>
+      {{else}}
+      <p class="hint">No nodes available yet.</p>
+      {{end}}
+    </fieldset>
+    <div class="dialog__actions field-span-2">
+      <button type="button" class="button button-ghost" data-dialog-close>Cancel</button>
+      <button type="submit" class="button button-primary">Create User</button>
+    </div>
+  </form>
+</dialog>
+{{end}}

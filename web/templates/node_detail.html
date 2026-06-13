@@ -1,0 +1,121 @@
+{{define "node_detail.html"}}{{template "app-layout-open" .}}{{template "node-detail-content" .}}{{template "app-layout-close" .}}{{end}}
+
+{{define "node-detail-content"}}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Node Detail</p>
+    <h1>{{.Node.Name}}</h1>
+    <p class="page-intro">{{.Node.Domain}}</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge {{.ProtocolTone}}">{{.Node.ProtocolType}}</span>
+    <span class="badge badge-{{.NodeStatusTone}}">{{.NodeStatusLabel}}</span>
+    <form method="post" action="/nodes/{{.Node.ID}}/health"><button class="button button-ghost" type="submit">{{template "icon-health" .}}<span>Health</span></button></form>
+    <form method="post" action="/nodes/{{.Node.ID}}/status"><button class="button button-ghost" type="submit">{{template "icon-status" .}}<span>Status</span></button></form>
+    <form method="post" action="/nodes/{{.Node.ID}}/sync"><button class="button button-secondary" type="submit">{{template "icon-sync" .}}<span>Sync</span></button></form>
+    <a class="button button-primary" href="/nodes/{{.Node.ID}}/edit">{{template "icon-edit" .}}<span>Edit</span></a>
+  </div>
+</section>
+
+<div class="content-grid content-grid--detail">
+  <section class="panel">
+    <div class="panel__header"><div><h2>Overview</h2><p>Stored secret remains masked outside the one-time create screen.</p></div></div>
+    <dl class="detail-grid detail-grid--wide">
+      <div><dt>Node ID</dt><dd><code>{{.Node.NodeID}}</code></dd></div>
+      <div><dt>Domain</dt><dd>{{.Node.Domain}}</dd></div>
+      <div><dt>API URL</dt><dd>{{if .Node.APIURL}}{{.Node.APIURL}}{{else}}-{{end}}</dd></div>
+      <div><dt>Protocol</dt><dd>{{.Node.ProtocolType}}</dd></div>
+      <div><dt>Setup State</dt><dd><span class="badge badge-{{.NodeStatusTone}}">{{.NodeStatusLabel}}</span></dd></div>
+      <div><dt>Desired Config Version</dt><dd>{{.Node.DesiredConfigVersion}}</dd></div>
+      <div><dt>Applied Version</dt><dd>{{.Node.LastAppliedVersion}}</dd></div>
+      <div><dt>Last Status</dt><dd>{{if .Node.LastStatus}}{{.Node.LastStatus}}{{else}}-{{end}}</dd></div>
+      <div><dt>Last Seen</dt><dd>{{formatTime .Node.LastSeenAt}}</dd></div>
+      <div><dt>Last Sync</dt><dd>{{formatTime .Node.LastSyncAt}}</dd></div>
+      <div><dt>Last Error</dt><dd>{{if .SafeLastError}}{{.SafeLastError}}{{else}}-{{end}}</dd></div>
+      <div><dt>Node Secret</dt><dd><code>{{.MaskedSecret}}</code></dd></div>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <div class="panel__header"><div><h2>Protocol Settings</h2><p>Public runtime settings only.</p></div></div>
+    {{if eq .Node.ProtocolType "mieru"}}
+    <dl class="detail-grid detail-grid--wide">
+      <div><dt>Ports</dt><dd>{{join .Node.ProtocolSettings.Mieru.Ports ", "}}</dd></div>
+      <div><dt>Protocol</dt><dd>{{.Node.ProtocolSettings.Mieru.Protocol}}</dd></div>
+      <div><dt>MTU</dt><dd>{{.Node.ProtocolSettings.Mieru.MTU}}</dd></div>
+      <div><dt>Multiplexing</dt><dd>{{.Node.ProtocolSettings.Mieru.Multiplexing}}</dd></div>
+      <div><dt>Handshake Mode</dt><dd>{{.Node.ProtocolSettings.Mieru.HandshakeMode}}</dd></div>
+      <div><dt>Traffic Pattern</dt><dd>{{if .Node.ProtocolSettings.Mieru.TrafficPattern}}{{.Node.ProtocolSettings.Mieru.TrafficPattern}}{{else}}-{{end}}</dd></div>
+      <div><dt>Profile</dt><dd>{{.Node.ProtocolSettings.Mieru.Profile}}</dd></div>
+    </dl>
+    {{else}}
+    <dl class="detail-grid detail-grid--wide">
+      <div><dt>Naive Port</dt><dd>{{.Node.ProtocolSettings.Naive.Port}}</dd></div>
+      <div><dt>Domain</dt><dd>{{.Node.Domain}}</dd></div>
+    </dl>
+    {{end}}
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel__header"><div><h2>Assigned Users</h2><p>Expired or disabled users are still visible here so operational state stays legible.</p></div></div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Status</th><th>Expiration</th><th>Assignment</th><th>Credentials</th></tr></thead>
+      <tbody>
+        {{range .Assignments}}
+        <tr>
+          <td><a class="row-link" href="/users/{{.UserID}}"><strong>{{.Username}}</strong><span>{{if .DisplayName}}{{.DisplayName}}{{else}}No display name{{end}}</span></a></td>
+          <td>
+            {{if not .UserEnabled}}<span class="badge badge-disabled">Disabled</span>
+            {{else if isUserExpired .UserExpiresAt}}<span class="badge badge-danger">Expired</span>
+            {{else if isUserExpiringSoon .UserExpiresAt}}<span class="badge badge-warning">Expires Soon</span>
+            {{else}}<span class="badge badge-success">Active</span>{{end}}
+          </td>
+          <td>{{if .UserExpiresAt}}{{formatTime .UserExpiresAt}}{{else}}Unlimited{{end}}</td>
+          <td><span class="badge {{if .Enabled}}badge-success{{else}}badge-disabled{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</span></td>
+          <td><code>{{.MaskedProtocolUsername}}</code><br><code>{{.MaskedProtocolPassword}}</code></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="5"><div class="empty-state empty-state--compact"><h3>No assigned users</h3></div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel__header"><div><h2>Recent Sync History</h2><p>Request payloads stay hidden; response details are sanitized for secrets.</p></div></div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Timestamp</th><th>Version</th><th>Status</th><th>HTTP</th><th>Changed</th><th>Error</th></tr></thead>
+      <tbody>
+        {{range .Events}}
+        <tr>
+          <td>{{formatTime .Event.CreatedAt}}</td>
+          <td>{{.Event.ConfigVersion}}</td>
+          <td><span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span></td>
+          <td>{{if .Event.HTTPStatus}}{{.Event.HTTPStatus}}{{else}}-{{end}}</td>
+          <td>
+            {{if .ResponsePreview}}
+            <details class="inline-details">
+              <summary>{{truncateText .ResponsePreview 56}}</summary>
+              <pre>{{safeJSONPreview .Event.ResponseJSON}}</pre>
+            </details>
+            {{else}}-{{end}}
+          </td>
+          <td>{{if .SafeError}}<details class="inline-details"><summary>{{.ErrorPreview}}</summary><pre>{{.SafeError}}</pre></details>{{else}}-{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>No sync history yet</h3></div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel danger-zone">
+  <div class="panel__header"><div><h2>Danger Zone</h2><p><code>node.enabled=false</code> hides this node from new subscriptions. Cached client configs may continue working until refresh.</p></div></div>
+  <form method="post" action="/nodes/{{.Node.ID}}/delete" data-confirm="Delete this node?"><button class="button button-danger" type="submit">Delete Node</button></form>
+</section>
+{{end}}

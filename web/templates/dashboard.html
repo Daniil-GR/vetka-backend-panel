@@ -1,28 +1,120 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css">
-  <title>Vetka Dashboard</title>
-</head>
-<body>
-  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
-  <main>
-    <section class="metrics">
-      <div><span>Nodes</span><strong>{{.NodeCount}}</strong></div>
-      <div><span>Users</span><strong>{{.UserCount}}</strong></div>
-      <div><span>Online</span><strong>{{.OnlineNodes}}</strong></div>
-      <div><span>Offline</span><strong>{{.OfflineNodes}}</strong></div>
-    </section>
-    <h2>Recent Sync Events</h2>
-    <table>
-      <thead><tr><th>Created</th><th>Node</th><th>Version</th><th>Status</th><th>HTTP</th><th>Error</th></tr></thead>
+{{define "dashboard.html"}}{{template "app-layout-open" .}}{{template "dashboard-content" .}}{{template "app-layout-close" .}}{{end}}
+
+{{define "dashboard-content"}}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Infrastructure</p>
+    <h1>Dashboard</h1>
+    <p class="page-intro">Control the reserve VPN plane, keep node state tidy, and catch expiry-driven revokes before they linger.</p>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/nodes/sync-all"><button class="button button-primary" type="submit">{{template "icon-sync" .}}<span>Sync All Nodes</span></button></form>
+    <form method="post" action="/users/reconcile-expired"><button class="button button-secondary" type="submit"><span>Reconcile Expired Users</span></button></form>
+  </div>
+</section>
+
+<section class="metrics-grid">
+  <article class="metric-card"><span>Total Users</span><strong>{{.UserStats.Total}}</strong></article>
+  <article class="metric-card"><span>Active Users</span><strong>{{.UserStats.Active}}</strong></article>
+  <article class="metric-card"><span>Expired Users</span><strong>{{.UserStats.Expired}}</strong></article>
+  <article class="metric-card"><span>Disabled Users</span><strong>{{.UserStats.Disabled}}</strong></article>
+  <article class="metric-card"><span>Total Nodes</span><strong>{{.NodeStats.Total}}</strong></article>
+  <article class="metric-card"><span>Connected</span><strong>{{.NodeStats.Connected}}</strong></article>
+  <article class="metric-card"><span>Unreachable</span><strong>{{.NodeStats.Unreachable}}</strong></article>
+  <article class="metric-card"><span>Planned</span><strong>{{.NodeStats.Planned}}</strong></article>
+  <article class="metric-card"><span>Mieru</span><strong>{{.NodeStats.Mieru}}</strong></article>
+  <article class="metric-card"><span>Naive</span><strong>{{.NodeStats.Naive}}</strong></article>
+  <article class="metric-card"><span>Sync Errors (24h)</span><strong>{{.NodeStats.RecentSyncErrors}}</strong></article>
+  <article class="metric-card"><span>Expires Soon</span><strong>{{.UserStats.ExpiresSoon}}</strong></article>
+</section>
+
+<div class="content-grid content-grid--dashboard">
+  <section class="panel">
+    <div class="panel__header">
+      <div><h2>Infrastructure Health</h2><p>Latest node state, versions, and last observed errors.</p></div>
+      <a class="button button-ghost" href="/nodes">View all nodes</a>
+    </div>
+    <div class="stack">
+      {{range .NodeItems}}
+      <a class="node-card" href="/nodes/{{.Node.ID}}">
+        <div class="node-card__main">
+          <div>
+            <h3>{{.Node.Name}}</h3>
+            <p>{{.Node.Domain}}</p>
+          </div>
+          <div class="node-card__badges">
+            <span class="badge {{.ProtocolTone}}">{{.Node.ProtocolType}}</span>
+            <span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span>
+            {{if not .Node.Enabled}}<span class="badge badge-disabled">Hidden</span>{{end}}
+          </div>
+        </div>
+        <dl class="detail-grid">
+          <div><dt>Desired</dt><dd>{{.Node.DesiredConfigVersion}}</dd></div>
+          <div><dt>Applied</dt><dd>{{.Node.LastAppliedVersion}}</dd></div>
+          <div><dt>Last Seen</dt><dd>{{formatTime .Node.LastSeenAt}}</dd></div>
+          <div><dt>Assigned Users</dt><dd>{{.AssignedUserCount}}</dd></div>
+        </dl>
+        {{if .LastErrorPreview}}<p class="error-inline">{{.LastErrorPreview}}</p>{{end}}
+      </a>
+      {{else}}
+      <div class="empty-state"><h3>No nodes yet</h3><p>Add the first planned or adopted node to start managing infrastructure.</p></div>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__header">
+      <div><h2>Upcoming Expirations</h2><p>Rendered in {{.AppTimezone}}.</p></div>
+      <a class="button button-ghost" href="/users">View users</a>
+    </div>
+    <div class="stack">
+      {{range .UpcomingUsers}}
+      <a class="list-row" href="/users/{{.User.ID}}">
+        <div>
+          <strong>{{.User.Username}}</strong>
+          <p>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}No display name{{end}}</p>
+        </div>
+        <div class="list-row__meta">
+          <span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span>
+          <span>{{formatTime .User.ExpiresAt}}</span>
+        </div>
+      </a>
+      {{else}}
+      <div class="empty-state"><h3>No upcoming expirations</h3><p>The next revoke window is quiet right now.</p></div>
+      {{end}}
+    </div>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel__header">
+    <div><h2>Recent Sync Events</h2><p>Latest backend-to-node sync attempts.</p></div>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Timestamp</th><th>Node</th><th>Config Version</th><th>Status</th><th>HTTP</th><th>Error</th></tr></thead>
       <tbody>
-        {{range .Events}}<tr><td>{{formatTime .CreatedAt}}</td><td>{{.NodeID}}</td><td>{{.ConfigVersion}}</td><td>{{.Status}}</td><td>{{if .HTTPStatus}}{{.HTTPStatus}}{{end}}</td><td>{{if .Error}}{{.Error}}{{end}}</td></tr>{{else}}
-        <tr><td colspan="6">No sync events yet.</td></tr>{{end}}
+        {{range .RecentEvents}}
+        <tr>
+          <td>{{formatTime .Event.CreatedAt}}</td>
+          <td>{{.NodeName}}</td>
+          <td>{{.Event.ConfigVersion}}</td>
+          <td><span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span></td>
+          <td>{{if .Event.HTTPStatus}}{{.Event.HTTPStatus}}{{else}}-{{end}}</td>
+          <td>
+            {{if .SafeError}}
+            <details class="inline-details">
+              <summary>{{.ErrorPreview}}</summary>
+              <pre>{{.SafeError}}</pre>
+            </details>
+            {{else}}-{{end}}
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>No sync events yet</h3></div></td></tr>
+        {{end}}
       </tbody>
     </table>
-  </main>
-</body>
-</html>
+  </div>
+</section>
+{{end}}

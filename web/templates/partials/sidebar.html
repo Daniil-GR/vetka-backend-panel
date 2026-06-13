@@ -1,0 +1,22 @@
+{{define "partial-sidebar"}}
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar__brand">
+    <span class="brand-mark">{{template "icon-logo" .}}</span>
+    <div>
+      <strong>Vetka Backend Panel</strong>
+      <span>Reserve VPN control plane</span>
+    </div>
+  </div>
+  <nav class="sidebar__nav" aria-label="Primary">
+    {{range .NavItems}}
+    <a href="{{.URL}}" class="nav-link {{if .Active}}is-active{{end}}">
+      <span>{{.Label}}</span>
+    </a>
+    {{end}}
+  </nav>
+  <div class="sidebar__meta">
+    <span class="badge badge-muted">{{.Environment}}</span>
+    <p>Backend ready on protected routes and local DB-backed checks.</p>
+  </div>
+</aside>
+{{end}}

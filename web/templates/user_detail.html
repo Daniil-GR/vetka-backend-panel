@@ -1,54 +1,139 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css">
-  <title>User</title>
-</head>
-<body>
-  <nav><strong>Vetka Backend Panel</strong><a href="/">Dashboard</a><a href="/nodes">Nodes</a><a href="/users">Users</a></nav>
-  <main>
-    <div class="toolbar"><h1>{{.User.Username}}</h1><form method="post" action="/users/{{.User.ID}}/sync"><button>Sync affected nodes</button></form></div>
-    {{if .Flash}}<div class="flash {{.FlashLevel}}">{{.Flash}}</div>{{end}}
-    <section class="panel">
-      <h2>Profile</h2>
-      <form method="post" action="/users/{{.User.ID}}" class="grid-form">
-        <label>Username <input name="username" value="{{.User.Username}}" required></label>
-        <label>Display name <input name="display_name" value="{{if .User.DisplayName}}{{.User.DisplayName}}{{end}}"></label>
-        <label>Expires at <input type="datetime-local" name="expires_at" value="{{formatDateTimeInput .User.ExpiresAt}}"></label>
-        <label>Quota MB <input type="number" name="quota_mb" min="0" value="{{.User.QuotaMB}}"></label>
-        <label>Notes <input name="notes" value="{{if .User.Notes}}{{.User.Notes}}{{end}}"></label>
-        <label class="check"><input type="checkbox" name="enabled" {{if .User.Enabled}}checked{{end}}> Enabled</label>
-        <button>Save</button>
-      </form>
-      <p class="hint {{.SubscriptionExpiryTone}}">{{.SubscriptionExpiryText}}</p>
-      <p class="hint">Quota MB 0 keeps subscription total unlimited while upload/download stay 0.</p>
-      <p>Karing subscription: <code>{{.KaringSubscriptionURL}}</code></p>
-      <p>Karing JSON: <code>{{.KaringJSONURL}}</code></p>
-      <p>Hiddify subscription: <code>{{.HiddifySubscriptionURL}}</code></p>
-      <p class="hint">Plain Hiddify subscription with Mieru + Naive links. Naive works on some Hiddify builds/platforms; iOS may fail with "cronet: library not found".</p>
-      <p>Hiddify JSON experimental: <code>{{.HiddifyJSONURL}}</code></p>
-      <p class="hint">Experimental JSON based on Hiddify internal export format. Use only for testing.</p>
-      {{if .HasMieruAccess}}<p>Hiddify Mieru only: <code>{{.HiddifyMierusURL}}</code></p>{{end}}
-      {{if .HasNaiveAccess}}<p>Hiddify Naive only: <code>{{.HiddifyNaiveURL}}</code></p>{{end}}
-      <p>Raw links: <code>{{.SubscriptionRawURL}}</code></p>
-      <form method="post" action="/users/{{.User.ID}}/enable"><button>Enable</button></form>
-      <form method="post" action="/users/{{.User.ID}}/disable"><button>Disable</button></form>
+{{define "user_detail.html"}}{{template "app-layout-open" .}}{{template "user-detail-content" .}}{{template "app-layout-close" .}}{{end}}
+
+{{define "user-detail-content"}}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">User Detail</p>
+    <h1>{{.User.Username}}</h1>
+    <p class="page-intro">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}No display name set{{end}}</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-{{.UserStatusTone}}">{{.UserStatusLabel}}</span>
+    <form method="post" action="/users/{{.User.ID}}/sync"><button class="button button-secondary" type="submit">Sync Affected Nodes</button></form>
+    {{if .User.Enabled}}
+    <form method="post" action="/users/{{.User.ID}}/disable"><button class="button button-ghost" type="submit">Disable</button></form>
+    {{else}}
+    <form method="post" action="/users/{{.User.ID}}/enable"><button class="button button-secondary" type="submit">Enable</button></form>
+    {{end}}
+  </div>
+</section>
+
+<div class="content-grid content-grid--detail">
+  <section class="panel">
+    <div class="panel__header"><div><h2>Overview</h2><p>{{.SubscriptionExpiryText}}</p></div></div>
+    <dl class="detail-grid detail-grid--wide">
+      <div><dt>Status</dt><dd><span class="badge badge-{{.UserStatusTone}}">{{.UserStatusLabel}}</span></dd></div>
+      <div><dt>Username</dt><dd>{{.User.Username}}</dd></div>
+      <div><dt>Display Name</dt><dd>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}-{{end}}</dd></div>
+      <div><dt>Expires At</dt><dd>{{if .User.ExpiresAt}}{{formatTime .User.ExpiresAt}}{{else}}Unlimited{{end}}</dd></div>
+      <div><dt>Remaining</dt><dd>{{timeRemaining .User.ExpiresAt}}</dd></div>
+      <div><dt>Quota</dt><dd>{{if gt .User.QuotaMB 0}}{{.User.QuotaMB}} MB{{else}}Unlimited{{end}}</dd></div>
+      <div><dt>Notes</dt><dd>{{if .User.Notes}}{{.User.Notes}}{{else}}-{{end}}</dd></div>
+      <div><dt>Subscription Token</dt><dd><code>{{.MaskedToken}}</code></dd></div>
+      <div><dt>Assigned Nodes</dt><dd>{{.AssignedNodeCount}}</dd></div>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <div class="panel__header"><div><h2>Edit User</h2><p>State changes stay POST-only and sync affected nodes afterward.</p></div></div>
+    <form method="post" action="/users/{{.User.ID}}" class="form-grid">
+      <label class="field"><span>Username</span><input name="username" value="{{.User.Username}}" required></label>
+      <label class="field"><span>Display Name</span><input name="display_name" value="{{if .User.DisplayName}}{{.User.DisplayName}}{{end}}"></label>
+      <label class="field"><span>Expires At</span><input type="datetime-local" name="expires_at" value="{{formatDateTimeInput .User.ExpiresAt}}"><small>Empty means unlimited. Timezone: {{.AppTimezone}}.</small></label>
+      <label class="field"><span>Quota MB</span><input type="number" name="quota_mb" min="0" value="{{.User.QuotaMB}}"><small><code>0</code> means unlimited metadata.</small></label>
+      <label class="field field-span-2"><span>Notes</span><input name="notes" value="{{if .User.Notes}}{{.User.Notes}}{{end}}"></label>
+      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" {{if .User.Enabled}}checked{{end}}><span>Enabled</span></label>
+      <div class="field-span-2 form-actions">
+        <button class="button button-primary" type="submit">Save</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel__header"><div><h2>Subscription Links</h2><p>All QR codes are generated locally in the browser. Nothing leaves the panel.</p></div></div>
+  <div class="subscription-groups">
+    {{range .SubscriptionGroups}}
+    <section class="subgroup">
+      <h3>{{.Title}}</h3>
+      <div class="stack">
+        {{range .Links}}
+        <div class="copy-field">
+          <label>{{.Label}}</label>
+          <div class="copy-field__row">
+            <input type="text" readonly value="{{.URL}}">
+            <button type="button" class="button button-secondary" data-copy-text="{{.URL}}">{{template "icon-copy" $}}<span data-copy-label>Copy</span></button>
+            {{if .QR}}<button type="button" class="button button-ghost" data-qr-title="{{.Label}}" data-qr-value="{{.URL}}">{{template "icon-qr" $}}<span>QR</span></button>{{end}}
+            <a class="button button-ghost" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{template "icon-external" $}}<span>Open</span></a>
+          </div>
+        </div>
+        {{end}}
+      </div>
     </section>
-    <section class="panel">
-      <h2>Assign Node</h2>
-      <form method="post" action="/users/{{.User.ID}}/assign-node" class="grid-form">
-        <label>Node <select name="node_id">{{range .Nodes}}<option value="{{.ID}}">{{.Name}} ({{.ProtocolType}})</option>{{end}}</select></label>
-        <label>Protocol username <input name="protocol_username" placeholder="generated when empty"></label>
-        <label>Protocol password <input name="protocol_password" placeholder="generated when empty"></label>
-        <button>Assign</button>
-      </form>
-    </section>
-    <table>
-      <thead><tr><th>Node</th><th>Protocol</th><th>Username</th><th>Password</th><th>Access status</th><th>Actions</th></tr></thead>
-      <tbody>{{range .Access}}<tr><td>{{.NodeID}}</td><td>{{.ProtocolType}}</td><td>{{.ProtocolUsername}}</td><td>{{mask .ProtocolPassword}}</td><td>{{if .Enabled}}enabled{{else}}disabled{{end}}</td><td class="actions">{{if .Enabled}}<form method="post" action="/users/{{.UserID}}/nodes/{{.ID}}/disable"><button>Disable</button></form>{{else}}<form method="post" action="/users/{{.UserID}}/nodes/{{.ID}}/enable"><button>Enable</button></form>{{end}}<form method="post" action="/users/{{.UserID}}/unassign-node"><input type="hidden" name="node_id" value="{{.NodeID}}"><button class="danger">Unassign</button></form></td></tr>{{else}}<tr><td colspan="6">No node assignments.</td></tr>{{end}}</tbody>
-    </table>
-  </main>
-</body>
-</html>
+    {{end}}
+  </div>
+</section>
+
+<div class="content-grid content-grid--detail">
+  <section class="panel">
+    <div class="panel__header"><div><h2>Assigned Nodes</h2><p>Protocol credentials stay masked in normal UI surfaces.</p></div><button type="button" class="button button-secondary" data-dialog-open="assign-node-dialog">Assign Node</button></div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Node</th><th>Protocol</th><th>Credentials</th><th>Access</th><th>Node State</th><th>Actions</th></tr></thead>
+        <tbody>
+          {{range .Access}}
+          <tr>
+            <td><a class="row-link" href="/nodes/{{.NodeID}}"><strong>{{.NodeName}}</strong><span>{{.NodeSetupState}}</span></a></td>
+            <td><span class="badge {{if eq .NodeProtocolType "mieru"}}protocol-mieru{{else}}protocol-naive{{end}}">{{.NodeProtocolType}}</span></td>
+            <td><code>{{.MaskedProtocolUsername}}</code><br><code>{{.MaskedProtocolPassword}}</code></td>
+            <td><span class="badge {{if .Enabled}}badge-success{{else}}badge-disabled{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</span></td>
+            <td><span class="badge {{if .NodeEnabled}}badge-success{{else}}badge-disabled{{end}}">{{if .NodeEnabled}}Visible{{else}}Hidden{{end}}</span></td>
+            <td class="table-actions">
+              {{if .Enabled}}
+              <form method="post" action="/users/{{$.User.ID}}/nodes/{{.ID}}/disable"><button class="button button-ghost" type="submit">Disable</button></form>
+              {{else}}
+              <form method="post" action="/users/{{$.User.ID}}/nodes/{{.ID}}/enable"><button class="button button-secondary" type="submit">Enable</button></form>
+              {{end}}
+              <form method="post" action="/users/{{$.User.ID}}/unassign-node" data-confirm="Unassign this node and sync it?">
+                <input type="hidden" name="node_id" value="{{.NodeID}}">
+                <button class="button button-danger" type="submit">Unassign</button>
+              </form>
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>No node assignments yet</h3></div></td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel danger-zone">
+    <div class="panel__header"><div><h2>Danger Zone</h2><p>Use with intention; these actions can revoke access or remove the user entirely.</p></div></div>
+    <div class="stack">
+      {{if .User.Enabled}}
+      <form method="post" action="/users/{{.User.ID}}/disable"><button class="button button-danger" type="submit">Disable User</button></form>
+      {{else}}
+      <form method="post" action="/users/{{.User.ID}}/enable"><button class="button button-secondary" type="submit">Enable User</button></form>
+      {{end}}
+      <form method="post" action="/users/{{.User.ID}}/delete" data-confirm="Delete this user and sync affected nodes?"><button class="button button-danger" type="submit">Delete User</button></form>
+    </div>
+  </section>
+</div>
+
+<dialog class="dialog" id="assign-node-dialog">
+  <div class="dialog__header">
+    <div><p class="eyebrow">Assign Node</p><h2>Attach protocol credentials</h2></div>
+    <button type="button" class="icon-button" data-dialog-close aria-label="Close dialog">x</button>
+  </div>
+  <form method="post" action="/users/{{.User.ID}}/assign-node" class="form-grid">
+    <label class="field field-span-2"><span>Node</span><select name="node_id">{{range .Nodes}}<option value="{{.ID}}">{{.Name}} - {{.ProtocolType}}</option>{{end}}</select></label>
+    <label class="field"><span>Protocol Username</span><input name="protocol_username" placeholder="Generated when empty"></label>
+    <label class="field"><span>Protocol Password</span><input name="protocol_password" placeholder="Generated when empty"></label>
+    <div class="dialog__actions field-span-2">
+      <button type="button" class="button button-ghost" data-dialog-close>Cancel</button>
+      <button type="submit" class="button button-primary">Assign Node</button>
+    </div>
+  </form>
+</dialog>
+{{end}}

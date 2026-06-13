@@ -1,0 +1,13 @@
+{{define "partial-topbar"}}
+<header class="topbar">
+  <button type="button" class="icon-button topbar__menu" data-sidebar-toggle aria-label="Open navigation">
+    {{template "icon-menu" .}}
+  </button>
+  <div class="topbar__breadcrumbs">
+    {{range $index, $crumb := .Breadcrumbs}}
+      {{if $index}}<span class="breadcrumbs__sep">/</span>{{end}}
+      {{if $crumb.URL}}<a href="{{$crumb.URL}}">{{$crumb.Label}}</a>{{else}}<span>{{$crumb.Label}}</span>{{end}}
+    {{end}}
+  </div>
+</header>
+{{end}}

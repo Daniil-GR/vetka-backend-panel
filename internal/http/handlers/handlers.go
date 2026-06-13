@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"vetka-backend-panel/internal/config"
+	"vetka-backend-panel/internal/http/middleware"
 	"vetka-backend-panel/internal/nodes"
 	"vetka-backend-panel/internal/security"
 	"vetka-backend-panel/internal/subscriptions"
@@ -55,17 +56,72 @@ func Mask(secret string) string {
 }
 
 func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, "login.html", map[string]any{"Title": "Login"})
+	h.render(w, "login.html", h.loginData(r.URL, ""))
+}
+
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	if middleware.Login(h.cfg, w, r) {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	w.WriteHeader(http.StatusUnauthorized)
+	h.render(w, "login.html", h.loginData(r.URL, "Invalid username or password"))
 }
 
 func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
-	totalNodes, onlineNodes, _ := h.nodeRepo.Count(r.Context())
-	userCount, _ := h.userRepo.Count(r.Context())
-	events, _ := h.nodeRepo.RecentEvents(r.Context(), 12)
-	h.render(w, "dashboard.html", map[string]any{
-		"Title": "Dashboard", "NodeCount": totalNodes, "UserCount": userCount,
-		"OnlineNodes": onlineNodes, "OfflineNodes": totalNodes - onlineNodes, "Events": events,
-	})
+	now := time.Now()
+	nodeStats, _ := h.nodeRepo.DashboardStats(r.Context(), now.Add(-24*time.Hour))
+	userStats, _ := h.userRepo.DashboardStats(r.Context(), now.Add(72*time.Hour))
+	nodesList, _ := h.nodeRepo.List(r.Context())
+	counts, _ := h.nodeRepo.AssignedUserCounts(r.Context())
+	events, _ := h.nodeRepo.RecentEvents(r.Context(), 10)
+	upcoming, _ := h.userRepo.UpcomingExpirations(r.Context(), 6)
+
+	nodeNames := map[string]string{}
+	for _, node := range nodesList {
+		nodeNames[node.ID] = node.Name
+	}
+	eventItems := make([]syncEventView, 0, len(events))
+	for _, event := range events {
+		tone := "success"
+		label := strings.ReplaceAll(formatStatusLabel(strings.ReplaceAll(event.Status, "_", " ")), "Http", "HTTP")
+		if event.Status != "ok" {
+			tone = "danger"
+		}
+		safeErrText := ""
+		if event.Error != nil {
+			safeErrText = SafeOperationalError(*event.Error)
+		}
+		eventItems = append(eventItems, syncEventView{
+			Event:           event,
+			NodeName:        includesText(nodeNames[event.NodeID], event.NodeID),
+			StatusTone:      tone,
+			StatusLabel:     label,
+			ErrorPreview:    TruncateText(safeErrText, 84),
+			SafeError:       safeErrText,
+			ResponsePreview: TruncateText(SafeJSONPreview(event.ResponseJSON), 160),
+		})
+	}
+
+	upcomingItems := make([]userListItem, 0, len(upcoming))
+	for _, user := range upcoming {
+		statusTone, statusLabel := userStatus(user)
+		upcomingItems = append(upcomingItems, userListItem{
+			User:              user,
+			StatusTone:        statusTone,
+			StatusLabel:       statusLabel,
+			AssignedNodeCount: 0,
+		})
+	}
+
+	data := h.pageData(r.URL, "Dashboard", "dashboard")
+	data["Breadcrumbs"] = []breadcrumb{{Label: "Dashboard", URL: "/"}}
+	data["NodeStats"] = nodeStats
+	data["UserStats"] = userStats
+	data["NodeItems"] = makeNodeListItems(nodesList, counts)
+	data["UpcomingUsers"] = upcomingItems
+	data["RecentEvents"] = eventItems
+	h.render(w, "dashboard.html", data)
 }
 
 func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
@@ -73,28 +129,101 @@ func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	h.render(w, "nodes.html", map[string]any{
-		"Title":       "Nodes",
-		"Nodes":       list,
-		"BackendIP":   h.cfg.BackendPublicIP,
-		"DefaultPort": h.cfg.NodeAgentDefaultPort,
-		"Flash":       r.URL.Query().Get("flash"),
-		"FlashLevel":  r.URL.Query().Get("level"),
-	})
+	counts, _ := h.nodeRepo.AssignedUserCounts(r.Context())
+	nodeStats, _ := h.nodeRepo.DashboardStats(r.Context(), time.Now().Add(-24*time.Hour))
+	data := h.pageData(r.URL, "Nodes", "nodes")
+	data["Breadcrumbs"] = []breadcrumb{{Label: "Nodes", URL: "/nodes"}}
+	data["NodeItems"] = makeNodeListItems(list, counts)
+	data["NodeStats"] = nodeStats
+	data["BackendIP"] = h.cfg.BackendPublicIP
+	data["DefaultPort"] = h.cfg.NodeAgentDefaultPort
+	h.render(w, "nodes.html", data)
 }
 
 func (h *Handler) CreateNode(w http.ResponseWriter, r *http.Request) {
 	in := nodeInputFromForm(r)
 	node, err := h.nodeManager.CreateNode(r.Context(), in)
 	if err != nil {
-		h.redirectWithFlash(w, r, "/nodes", err.Error(), "error")
+		h.redirectWithErrorFlash(w, r, "/nodes", "", err)
 		return
 	}
 	if in.Mode == nodes.NodeModeAdopt {
 		h.redirectWithFlash(w, r, "/nodes", "Existing node adopted and connected", "success")
 		return
 	}
-	h.render(w, "node_created.html", map[string]any{"Title": "Node created", "Node": node, "BackendIP": h.cfg.BackendPublicIP, "DefaultPort": h.cfg.NodeAgentDefaultPort})
+	data := h.pageData(r.URL, "Node Created", "nodes")
+	data["Breadcrumbs"] = []breadcrumb{
+		{Label: "Nodes", URL: "/nodes"},
+		{Label: "Node Created", URL: ""},
+	}
+	data["Node"] = node
+	data["BackendIP"] = h.cfg.BackendPublicIP
+	data["DefaultPort"] = h.cfg.NodeAgentDefaultPort
+	h.render(w, "node_created.html", data)
+}
+
+func (h *Handler) NodeDetail(w http.ResponseWriter, r *http.Request) {
+	node, err := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
+	if h.handleErr(w, err) {
+		return
+	}
+	assignments, _ := h.userRepo.AccessDetailForNode(r.Context(), node.ID)
+	events, _ := h.nodeRepo.RecentEventsByNode(r.Context(), node.ID, 12)
+
+	statusTone, statusLabel := nodeStatusTone(node)
+	eventItems := make([]syncEventView, 0, len(events))
+	for _, event := range events {
+		tone := "success"
+		label := formatStatusLabel(strings.ReplaceAll(event.Status, "_", " "))
+		label = strings.ReplaceAll(label, "Http", "HTTP")
+		if event.Status != "ok" {
+			tone = "danger"
+		}
+		safeErrText := ""
+		if event.Error != nil {
+			safeErrText = SafeOperationalError(*event.Error)
+		}
+		eventItems = append(eventItems, syncEventView{
+			Event:           event,
+			NodeName:        node.Name,
+			StatusTone:      tone,
+			StatusLabel:     label,
+			ErrorPreview:    TruncateText(safeErrText, 84),
+			SafeError:       safeErrText,
+			ResponsePreview: TruncateText(SafeJSONPreview(event.ResponseJSON), 160),
+		})
+	}
+	assignmentViews := make([]nodeAssignmentView, 0, len(assignments))
+	for _, item := range assignments {
+		assignmentViews = append(assignmentViews, nodeAssignmentView{
+			UserID:                 item.UserID,
+			Username:               item.Username,
+			DisplayName:            item.DisplayName,
+			UserEnabled:            item.UserEnabled,
+			UserExpiresAt:          item.UserExpiresAt,
+			Enabled:                item.Enabled,
+			MaskedProtocolUsername: Mask(item.ProtocolUsername),
+			MaskedProtocolPassword: Mask(item.ProtocolPassword),
+		})
+	}
+
+	data := h.pageData(r.URL, node.Name, "nodes")
+	data["Breadcrumbs"] = []breadcrumb{
+		{Label: "Nodes", URL: "/nodes"},
+		{Label: node.Name, URL: ""},
+	}
+	data["Node"] = node
+	data["NodeStatusTone"] = statusTone
+	data["NodeStatusLabel"] = statusLabel
+	data["ProtocolTone"] = protocolTone(node.ProtocolType)
+	data["MaskedSecret"] = Mask(node.NodeSecret)
+	data["SafeLastError"] = ""
+	if node.LastError != nil {
+		data["SafeLastError"] = SafeOperationalError(*node.LastError)
+	}
+	data["Assignments"] = assignmentViews
+	data["Events"] = eventItems
+	h.render(w, "node_detail.html", data)
 }
 
 func (h *Handler) EditNodePage(w http.ResponseWriter, r *http.Request) {
@@ -102,18 +231,20 @@ func (h *Handler) EditNodePage(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	h.render(w, "node_edit.html", map[string]any{
-		"Title":      "Edit Node",
-		"Node":       node,
-		"Flash":      r.URL.Query().Get("flash"),
-		"FlashLevel": r.URL.Query().Get("level"),
-	})
+	data := h.pageData(r.URL, "Edit Node", "nodes")
+	data["Breadcrumbs"] = []breadcrumb{
+		{Label: "Nodes", URL: "/nodes"},
+		{Label: node.Name, URL: "/nodes/" + node.ID},
+		{Label: "Edit", URL: ""},
+	}
+	data["Node"] = node
+	h.render(w, "node_edit.html", data)
 }
 
 func (h *Handler) ValidateNodeStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.nodeManager.ValidateNodeStatus(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", "Validation failed: "+err.Error(), "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", "Validation failed: ", err)
 		return
 	}
 	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", formatNodeStatusFlash(status), "success")
@@ -122,10 +253,10 @@ func (h *Handler) ValidateNodeStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateNode(w http.ResponseWriter, r *http.Request) {
 	_, err := h.nodeManager.UpdateNode(r.Context(), chi.URLParam(r, "id"), nodeInputFromForm(r))
 	if err != nil {
-		h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", err.Error(), "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", "", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes", "Node updated", "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node updated", "success")
 }
 
 func (h *Handler) DeleteNode(w http.ResponseWriter, r *http.Request) {
@@ -138,59 +269,59 @@ func (h *Handler) DeleteNode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) NodeHealth(w http.ResponseWriter, r *http.Request) {
 	node, getErr := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
 	if getErr != nil {
-		h.redirectWithFlash(w, r, "/nodes", getErr.Error(), "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "", getErr)
 		return
 	}
 	if _, err := h.nodeManager.CheckNodeHealth(r.Context(), chi.URLParam(r, "id")); err != nil {
-		message := "Health failed: " + err.Error()
 		if node.SetupState == nodes.SetupStatePlanned {
-			message = "Node is not reachable yet"
+			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node is not reachable yet", "error")
+			return
 		}
-		h.redirectWithFlash(w, r, "/nodes", message, "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Health failed: ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes", "Health OK", "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Health OK", "success")
 }
 
 func (h *Handler) NodeStatus(w http.ResponseWriter, r *http.Request) {
 	node, getErr := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
 	if getErr != nil {
-		h.redirectWithFlash(w, r, "/nodes", getErr.Error(), "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "", getErr)
 		return
 	}
 	status, err := h.nodeManager.FetchNodeStatus(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		message := "Status failed: " + err.Error()
 		if node.SetupState == nodes.SetupStatePlanned {
-			message = "Node is not reachable yet"
+			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node is not reachable yet", "error")
+			return
 		}
-		h.redirectWithFlash(w, r, "/nodes", message, "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Status failed: ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes", formatNodeStatusFlash(status), "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), formatNodeStatusFlash(status), "success")
 }
 
 func (h *Handler) SyncNode(w http.ResponseWriter, r *http.Request) {
 	node, getErr := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
 	if getErr != nil {
-		h.redirectWithFlash(w, r, "/nodes", getErr.Error(), "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "", getErr)
 		return
 	}
 	resp, err := h.nodeManager.SyncNode(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		message := "Sync failed: " + err.Error()
 		if node.SetupState == nodes.SetupStatePlanned {
-			message = "Node is not reachable yet"
+			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node is not reachable yet", "error")
+			return
 		}
-		h.redirectWithFlash(w, r, "/nodes", message, "error")
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Sync failed: ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes", formatSyncFlash(resp), "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), formatSyncFlash(resp), "success")
 }
 
 func (h *Handler) SyncAllNodes(w http.ResponseWriter, r *http.Request) {
 	if err := h.nodeManager.SyncAllNodes(r.Context()); err != nil {
-		h.redirectWithFlash(w, r, "/nodes", "Sync all failed: "+err.Error(), "error")
+		h.redirectWithErrorFlash(w, r, "/nodes", "Sync all failed: ", err)
 		return
 	}
 	h.redirectWithFlash(w, r, "/nodes", "Sync all OK", "success")
@@ -202,13 +333,38 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nodesList, _ := h.nodeRepo.List(r.Context())
-	h.render(w, "users.html", map[string]any{
-		"Title":      "Users",
-		"Users":      list,
-		"Nodes":      nodesList,
-		"Flash":      r.URL.Query().Get("flash"),
-		"FlashLevel": r.URL.Query().Get("level"),
-	})
+	counts, _ := h.userRepo.AssignmentCounts(r.Context())
+	filter := strings.TrimSpace(r.URL.Query().Get("status"))
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	sortMode := strings.TrimSpace(r.URL.Query().Get("sort"))
+	if sortMode == "" {
+		sortMode = "created_at"
+	}
+	items := make([]userListItem, 0, len(list))
+	for _, user := range list {
+		statusTone, statusLabel := userStatus(user)
+		item := userListItem{
+			User:              user,
+			StatusTone:        statusTone,
+			StatusLabel:       statusLabel,
+			AssignedNodeCount: counts[user.ID],
+		}
+		if !matchesUserFilter(item, filter, search) {
+			continue
+		}
+		items = append(items, item)
+	}
+	sortUserViews(items, sortMode)
+
+	data := h.pageData(r.URL, "Users", "users")
+	data["Breadcrumbs"] = []breadcrumb{{Label: "Users", URL: "/users"}}
+	data["UserItems"] = items
+	data["Nodes"] = nodesList
+	data["Filter"] = filter
+	data["Search"] = search
+	data["Sort"] = sortMode
+	data["UserStats"], _ = h.userRepo.DashboardStats(r.Context(), time.Now().Add(72*time.Hour))
+	h.render(w, "users.html", data)
 }
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -220,12 +376,16 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	for _, node := range nodesList {
 		protocols[node.ID] = node.ProtocolType
 	}
-	in := h.userInputFromForm(r)
+	in, inputErr := h.userInputFromForm(r)
+	if inputErr != nil {
+		h.redirectWithFlash(w, r, "/users", "Invalid expiration date and time", "error")
+		return
+	}
 	user, err := h.userSvc.CreateUser(r.Context(), in, protocols)
 	if h.handleErr(w, err) {
 		return
 	}
-	syncErrors := h.syncNodesAfterChange(r.Context(), in.NodeIDs)
+	syncErrors := h.syncNodesAfterChangeForUI(r.Context(), in.NodeIDs)
 	if len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+user.ID, "User saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
@@ -238,27 +398,68 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	access, _ := h.userRepo.AccessForUser(r.Context(), user.ID)
+	access, _ := h.userRepo.AccessDetailForUser(r.Context(), user.ID)
 	nodesList, _ := h.nodeRepo.List(r.Context())
-	h.render(w, "user_detail.html", map[string]any{
-		"Title":                  "User",
-		"User":                   user,
-		"Access":                 access,
-		"Nodes":                  nodesList,
-		"SubscriptionExpiryText": subscriptionExpiryText(user.ExpiresAt, h.appLocation),
-		"SubscriptionExpiryTone": subscriptionExpiryTone(user.ExpiresAt),
-		"KaringSubscriptionURL":  h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken,
-		"KaringJSONURL":          h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=json",
-		"HiddifySubscriptionURL": h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=hiddify",
-		"HiddifyJSONURL":         h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=hiddify-json",
-		"HiddifyMierusURL":       h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=mierus",
-		"HiddifyNaiveURL":        h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=naive",
-		"SubscriptionRawURL":     h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken + "?format=raw",
-		"HasMieruAccess":         hasProtocolAccess(access, "mieru"),
-		"HasNaiveAccess":         hasProtocolAccess(access, "naive"),
-		"Flash":                  r.URL.Query().Get("flash"),
-		"FlashLevel":             r.URL.Query().Get("level"),
-	})
+	base := h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken
+	statusTone, statusLabel := userStatus(user)
+	accessViews := make([]assignmentView, 0, len(access))
+	for _, item := range access {
+		accessViews = append(accessViews, assignmentView{
+			ID:                     item.ID,
+			UserID:                 item.UserID,
+			NodeID:                 item.NodeID,
+			NodeName:               item.NodeName,
+			NodeSetupState:         item.NodeSetupState,
+			NodeProtocolType:       item.NodeProtocolType,
+			NodeEnabled:            item.NodeEnabled,
+			Enabled:                item.Enabled,
+			MaskedProtocolUsername: Mask(item.ProtocolUsername),
+			MaskedProtocolPassword: Mask(item.ProtocolPassword),
+		})
+	}
+	data := h.pageData(r.URL, "User Detail", "users")
+	data["Breadcrumbs"] = []breadcrumb{
+		{Label: "Users", URL: "/users"},
+		{Label: user.Username, URL: ""},
+	}
+	data["User"] = user
+	data["Access"] = accessViews
+	data["Nodes"] = nodesList
+	data["SubscriptionExpiryText"] = subscriptionExpiryText(user.ExpiresAt, h.appLocation)
+	data["UserStatusTone"] = statusTone
+	data["UserStatusLabel"] = statusLabel
+	data["MaskedToken"] = Mask(user.SubscriptionToken)
+	data["AssignedNodeCount"] = len(access)
+	hiddifyLinks := []subscriptionLink{
+		{Label: "Hiddify Subscription", URL: base + "?format=hiddify", QR: true},
+		{Label: "Hiddify JSON Experimental", URL: base + "?format=hiddify-json"},
+	}
+	if hasDetailedProtocolAccess(access, "mieru") {
+		hiddifyLinks = append(hiddifyLinks, subscriptionLink{Label: "Hiddify Mieru Only", URL: base + "?format=mierus"})
+	}
+	if hasDetailedProtocolAccess(access, "naive") {
+		hiddifyLinks = append(hiddifyLinks, subscriptionLink{Label: "Hiddify Naive Only", URL: base + "?format=naive"})
+	}
+	data["SubscriptionGroups"] = []subscriptionLinkGroup{
+		{
+			Title: "Karing",
+			Links: []subscriptionLink{
+				{Label: "Karing Subscription", URL: base, QR: true},
+				{Label: "Karing JSON", URL: base + "?format=json"},
+			},
+		},
+		{
+			Title: "Hiddify",
+			Links: hiddifyLinks,
+		},
+		{
+			Title: "Debug",
+			Links: []subscriptionLink{
+				{Label: "Raw Links", URL: base + "?format=raw"},
+			},
+		},
+	}
+	h.render(w, "user_detail.html", data)
 }
 
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
@@ -266,11 +467,16 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	_, err = h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), h.userInputFromForm(r))
+	in, inputErr := h.userInputFromForm(r)
+	if inputErr != nil {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Invalid expiration date and time", "error")
+		return
+	}
+	_, err = h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), in)
 	if h.handleErr(w, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -285,7 +491,7 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, h.userRepo.Delete(r.Context(), chi.URLParam(r, "id"))) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users", "User deleted, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -300,7 +506,7 @@ func (h *Handler) EnableUser(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User enabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -315,7 +521,7 @@ func (h *Handler) DisableUser(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), nodeIDs); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User disabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -339,7 +545,7 @@ func (h *Handler) AssignNode(w http.ResponseWriter, r *http.Request) {
 	if h.handleErr(w, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{node.ID}); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{node.ID}); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Assignment saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -351,7 +557,7 @@ func (h *Handler) UnassignNode(w http.ResponseWriter, r *http.Request) {
 	if err := h.userRepo.UnassignNode(r.Context(), chi.URLParam(r, "id"), nodeID); h.handleErr(w, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{nodeID}); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{nodeID}); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Unassigned, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -366,7 +572,7 @@ func (h *Handler) EnableUserNodeAccess(w http.ResponseWriter, r *http.Request) {
 	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, true); h.handleErr(w, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access enabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -381,7 +587,7 @@ func (h *Handler) DisableUserNodeAccess(w http.ResponseWriter, r *http.Request) 
 	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, false); h.handleErr(w, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChange(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
 		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access disabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
 		return
 	}
@@ -389,7 +595,7 @@ func (h *Handler) DisableUserNodeAccess(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
-	errs, err := h.syncUserAssignments(r.Context(), chi.URLParam(r, "id"))
+	errs, err := h.syncUserAssignmentsForUI(r.Context(), chi.URLParam(r, "id"))
 	if h.handleErr(w, err) {
 		return
 	}
@@ -412,13 +618,13 @@ func (h *Handler) ReconcileExpiredUsers(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) Subscription(w http.ResponseWriter, r *http.Request) {
 	user, userErr := h.userRepo.GetByToken(r.Context(), chi.URLParam(r, "token"))
 	if userErr != nil {
-		http.Error(w, userErr.Error(), http.StatusNotFound)
+		httpErrorRaw(w, userErr, http.StatusNotFound)
 		return
 	}
 	format := r.URL.Query().Get("format")
 	body, contentType, err := h.subSvc.BuildByToken(r.Context(), chi.URLParam(r, "token"), format)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		httpErrorRaw(w, err, http.StatusNotFound)
 		return
 	}
 	h.applySubscriptionHeaders(w, format, contentType, user)
@@ -569,15 +775,6 @@ func (h *Handler) APIReconcileExpiredUsers(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
 }
 
-func hasProtocolAccess(access []users.Access, protocol string) bool {
-	for _, item := range access {
-		if item.ProtocolType == protocol && item.Enabled {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *Handler) applySubscriptionHeaders(w http.ResponseWriter, format, contentType string, user users.User) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(h.cfg.SubscriptionProfileTitle)))
@@ -610,20 +807,6 @@ func subscriptionExpiryText(expiresAt *time.Time, loc *time.Location) string {
 		return "Expires at: " + formatted + " (expires soon)"
 	}
 	return "Expires at: " + formatted
-}
-
-func subscriptionExpiryTone(expiresAt *time.Time) string {
-	if expiresAt == nil {
-		return "ok"
-	}
-	now := time.Now()
-	if expiresAt.Before(now) {
-		return "expired"
-	}
-	if expiresAt.Before(now.Add(72 * time.Hour)) {
-		return "soon"
-	}
-	return "ok"
 }
 
 func (h *Handler) APIListNodes(w http.ResponseWriter, r *http.Request) {
@@ -712,10 +895,10 @@ func (h *Handler) APISyncAllNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (h *Handler) render(w http.ResponseWriter, name string, data map[string]any) {
+func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 	if err := h.tmpl.ExecuteTemplate(w, name, data); err != nil {
-		h.logger.Error("render template", "template", name, "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		h.logger.Error("render template", "template", name, "error", SafeOperationalError(err.Error()))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
@@ -723,8 +906,8 @@ func (h *Handler) handleErr(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
 	}
-	h.logger.Error("request failed", "error", err)
-	http.Error(w, err.Error(), http.StatusInternalServerError)
+	h.logger.Error("request failed", "error", SafeOperationalError(err.Error()))
+	http.Error(w, "Internal server error", http.StatusInternalServerError)
 	return true
 }
 
@@ -755,42 +938,49 @@ func nodeInputFromForm(r *http.Request) nodes.CreateNodeInput {
 	}
 }
 
-func (h *Handler) userInputFromForm(r *http.Request) users.CreateUserInput {
+func (h *Handler) userInputFromForm(r *http.Request) (users.CreateUserInput, error) {
+	expiresAt, err := parseOptionalDateTime(r.FormValue("expires_at"), h.appLocation)
+	if err != nil {
+		return users.CreateUserInput{}, err
+	}
 	return users.CreateUserInput{
 		Username:    r.FormValue("username"),
 		DisplayName: stringPtr(r.FormValue("display_name")),
 		Enabled:     boolFromForm(r, "enabled", true),
-		ExpiresAt:   parseDateTime(r.FormValue("expires_at"), h.appLocation),
+		ExpiresAt:   expiresAt,
 		QuotaMB:     intFromForm(r.FormValue("quota_mb")),
 		Notes:       stringPtr(r.FormValue("notes")),
 		NodeIDs:     r.Form["node_ids"],
-	}
+	}, nil
 }
 
 func boolFromForm(r *http.Request, key string, fallback bool) bool {
-	value := r.FormValue(key)
-	if value == "" {
+	_ = r.ParseForm()
+	values, ok := r.PostForm[key]
+	if !ok || len(values) == 0 {
 		return fallback
 	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return value == "on"
+	for _, value := range values {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true", "on", "1":
+			return true
+		}
 	}
-	return parsed
+	return false
 }
 
-func parseDateTime(value string, loc *time.Location) *time.Time {
+func parseOptionalDateTime(value string, loc *time.Location) (*time.Time, error) {
 	if value == "" {
-		return nil
+		return nil, nil
 	}
 	if loc == nil {
 		loc = time.UTC
 	}
 	t, err := time.ParseInLocation("2006-01-02T15:04", value, loc)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return &t
+	return &t, nil
 }
 
 func intFromForm(value string) int {
@@ -828,7 +1018,7 @@ func stringPtr(value string) *string {
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		httpErrorRaw(w, err, http.StatusBadRequest)
 		return true
 	}
 	return false
@@ -876,6 +1066,45 @@ func (h *Handler) redirectWithFlash(w http.ResponseWriter, r *http.Request, path
 	http.Redirect(w, r, path+"?"+values.Encode(), http.StatusFound)
 }
 
+func safeUIErrorText(value string) string {
+	sanitized := SafeOperationalError(value)
+	if sanitized == "" {
+		return "Operation failed. Check backend logs."
+	}
+	sanitized = strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' || r == '\t' {
+			return ' '
+		}
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, sanitized)
+	sanitized = strings.Join(strings.Fields(sanitized), " ")
+	sanitized = TruncateText(sanitized, 300)
+	if strings.TrimSpace(sanitized) == "" || sanitized == "***" {
+		return "Operation failed. Check backend logs."
+	}
+	return sanitized
+}
+
+func SafeUIError(err error) string {
+	if err == nil {
+		return "Operation failed. Check backend logs."
+	}
+	return safeUIErrorText(err.Error())
+}
+
+func (h *Handler) redirectWithErrorFlash(w http.ResponseWriter, r *http.Request, path, prefix string, err error) {
+	safeErr := SafeUIError(err)
+	h.logger.Error("ui action failed", "path", r.URL.Path, "error", safeErr)
+	message := safeErr
+	if prefix != "" {
+		message = prefix + safeErr
+	}
+	h.redirectWithFlash(w, r, path, message, "error")
+}
+
 func (h *Handler) syncUserAssignments(ctx context.Context, userID string) ([]string, error) {
 	access, err := h.userRepo.AccessForUser(ctx, userID)
 	if err != nil {
@@ -884,10 +1113,18 @@ func (h *Handler) syncUserAssignments(ctx context.Context, userID string) ([]str
 	errs := make([]string, 0)
 	for _, a := range access {
 		if _, err := h.nodeManager.SyncNode(ctx, a.NodeID); err != nil {
-			errs = append(errs, a.NodeID+": "+err.Error())
+			errs = append(errs, formatRawNodeSyncError(a.NodeID, err))
 		}
 	}
 	return errs, nil
+}
+
+func (h *Handler) syncUserAssignmentsForUI(ctx context.Context, userID string) ([]string, error) {
+	errs, err := h.syncUserAssignments(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return sanitizeNodeSyncErrors(errs), nil
 }
 
 func (h *Handler) syncNodesAfterChange(ctx context.Context, nodeIDs []string) []string {
@@ -900,17 +1137,53 @@ func (h *Handler) syncNodesAfterChange(ctx context.Context, nodeIDs []string) []
 		seen[nodeID] = true
 		node, err := h.nodeRepo.Get(ctx, nodeID)
 		if err != nil {
-			errs = append(errs, nodeID+": "+err.Error())
+			errs = append(errs, formatRawNodeSyncError(nodeID, err))
 			continue
 		}
 		if !node.Enabled {
 			continue
 		}
 		if _, err := h.nodeManager.SyncNode(ctx, nodeID); err != nil {
-			errs = append(errs, nodeID+": "+err.Error())
+			errs = append(errs, formatRawNodeSyncError(nodeID, err))
 		}
 	}
 	return errs
+}
+
+func (h *Handler) syncNodesAfterChangeForUI(ctx context.Context, nodeIDs []string) []string {
+	return sanitizeNodeSyncErrors(h.syncNodesAfterChange(ctx, nodeIDs))
+}
+
+func sanitizeNodeSyncErrors(errs []string) []string {
+	safe := make([]string, 0, len(errs))
+	for _, errText := range errs {
+		nodeID, detail, found := strings.Cut(errText, ": ")
+		if !found {
+			safe = append(safe, safeUIErrorText(errText))
+			continue
+		}
+		safe = append(safe, nodeID+": "+safeUIErrorText(detail))
+	}
+	return safe
+}
+
+func formatRawNodeSyncError(nodeID string, err error) string {
+	return nodeID + ": " + rawErrorText(err)
+}
+
+func rawErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func httpErrorRaw(w http.ResponseWriter, err error, status int) {
+	if err == nil {
+		return
+	}
+	message := err.Error()
+	http.Error(w, message, status)
 }
 
 func (h *Handler) userNodeIDs(ctx context.Context, userID string) ([]string, error) {

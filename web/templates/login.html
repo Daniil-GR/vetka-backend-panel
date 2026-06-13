@@ -1,19 +1,21 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css">
-  <title>Login</title>
-</head>
-<body class="login">
-  <main class="login-box">
-    <h1>Vetka Backend Panel</h1>
-    <form method="post" action="/login">
-      <label>Username <input name="username" autocomplete="username"></label>
-      <label>Password <input name="password" type="password" autocomplete="current-password"></label>
-      <button type="submit">Log in</button>
+{{define "login.html"}}{{template "login-layout-open" .}}{{template "login-content" .}}{{template "login-layout-close" .}}{{end}}
+
+{{define "login-content"}}
+<main class="login-page">
+  <section class="login-card">
+    <div class="login-brand">
+      <span class="brand-mark">{{template "icon-logo" .}}</span>
+      <div>
+        <p class="eyebrow">Protected Access</p>
+        <h1>Vetka Backend Panel</h1>
+      </div>
+    </div>
+    {{template "partial-toasts" .}}
+    <form method="post" action="/login" class="form-grid">
+      <label class="field field-span-2"><span>Username</span><input name="username" autocomplete="username" required></label>
+      <label class="field field-span-2"><span>Password</span><div class="password-field"><input name="password" type="password" autocomplete="current-password" required data-password-input><button type="button" class="button button-ghost" data-password-toggle>Show</button></div></label>
+      <button class="button button-primary field-span-2" type="submit">Log In</button>
     </form>
-  </main>
-</body>
-</html>
+  </section>
+</main>
+{{end}}

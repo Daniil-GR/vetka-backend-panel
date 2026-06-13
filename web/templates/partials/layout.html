@@ -1,0 +1,50 @@
+{{define "app-layout-open"}}
+<!doctype html>
+<html lang="en">
+{{template "partial-head" .}}
+<body class="app-shell">
+  <div class="app-frame">
+    <div class="sidebar-backdrop" data-sidebar-close hidden></div>
+    {{template "partial-sidebar" .}}
+    <div class="app-main">
+      {{template "partial-topbar" .}}
+      {{template "partial-toasts" .}}
+      <main class="content">
+{{end}}
+
+{{define "app-layout-close"}}
+      </main>
+    </div>
+  </div>
+  <dialog class="dialog qr-dialog" id="qr-dialog">
+    <div class="dialog__header">
+      <div>
+        <p class="eyebrow">QR Code</p>
+        <h3 id="qr-title">Subscription QR</h3>
+      </div>
+      <button type="button" class="icon-button" data-dialog-close aria-label="Close dialog">×</button>
+    </div>
+    <div class="dialog__content">
+      <div class="qr-canvas" id="qr-canvas" aria-hidden="true"></div>
+      <p class="dialog__text" id="qr-url"></p>
+    </div>
+    <div class="dialog__actions">
+      <button type="button" class="button button-secondary" id="qr-copy" data-copy-target="qr-url" data-copy-text="">Copy URL</button>
+      <button type="button" class="button button-ghost" data-dialog-close>Close</button>
+    </div>
+  </dialog>
+</body>
+</html>
+{{end}}
+
+{{define "login-layout-open"}}
+<!doctype html>
+<html lang="en">
+{{template "partial-head" .}}
+<body class="login-shell">
+{{end}}
+
+{{define "login-layout-close"}}
+</body>
+</html>
+{{end}}
