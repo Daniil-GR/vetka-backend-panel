@@ -10,6 +10,8 @@ VETKA_PROJECT_ROOT="${VETKA_PROJECT_ROOT:-$(cd -- "${VETKA_SCRIPT_DIR}/.." && pw
 VETKA_BACKUP_PREFIX="vetka-backend-panel"
 VETKA_MAINTENANCE_LOCK_FILE="${VETKA_MAINTENANCE_LOCK_FILE:-/run/lock/vetka-backend-panel-maintenance.lock}"
 VETKA_MAINTENANCE_LOCK_DIR="${VETKA_MAINTENANCE_LOCK_DIR:-${VETKA_MAINTENANCE_LOCK_FILE}.d}"
+VETKA_SYSTEMD_SERVICE_FILE="${VETKA_SYSTEMD_SERVICE_FILE:-/etc/systemd/system/vetka-backend-backup.service}"
+VETKA_SYSTEMD_TIMER_FILE="${VETKA_SYSTEMD_TIMER_FILE:-/etc/systemd/system/vetka-backend-backup.timer}"
 VETKA_MAINTENANCE_LOCK_HELD="${VETKA_MAINTENANCE_LOCK_HELD:-false}"
 VETKA_MAINTENANCE_LOCK_ACQUIRED="false"
 VETKA_MAINTENANCE_LOCK_MODE=""
@@ -550,7 +552,7 @@ vetka_apply_retention() {
   local retention_days="$2"
   [[ "$retention_days" =~ ^[0-9]+$ ]] || vetka_die "retention days must be numeric"
   (( retention_days > 0 )) || return 0
-  vetka_assert_safe_backup_dir "$backup_dir"
+  vetka_assert_safe_backup_dir "$backup_dir" >/dev/null
   find "$backup_dir" -maxdepth 1 -type f -name "${VETKA_BACKUP_PREFIX}-*.tar.gz" -mtime "+${retention_days}" -delete
 }
 
@@ -608,12 +610,12 @@ vetka_install_backup_units() {
   local app_dir="$1"
   local backup_dir="$2"
   local on_calendar="$3"
-  local service_file="/etc/systemd/system/vetka-backend-backup.service"
-  local timer_file="/etc/systemd/system/vetka-backend-backup.timer"
+  local service_file="$VETKA_SYSTEMD_SERVICE_FILE"
+  local timer_file="$VETKA_SYSTEMD_TIMER_FILE"
 
   [[ "$app_dir" == /* ]] || vetka_die "application directory must be absolute"
   [[ ! "$app_dir" =~ [[:space:]] ]] || vetka_die "application directory must not contain whitespace"
-  vetka_assert_safe_backup_dir "$backup_dir"
+  vetka_assert_safe_backup_dir "$backup_dir" >/dev/null
   vetka_validate_systemd_calendar "$on_calendar"
 
   cat >"$service_file" <<EOF
@@ -667,8 +669,8 @@ EOF
 }
 
 vetka_remove_backup_units() {
-  local service_file="/etc/systemd/system/vetka-backend-backup.service"
-  local timer_file="/etc/systemd/system/vetka-backend-backup.timer"
+  local service_file="$VETKA_SYSTEMD_SERVICE_FILE"
+  local timer_file="$VETKA_SYSTEMD_TIMER_FILE"
   if vetka_command_exists systemctl; then
     systemctl disable --now vetka-backend-backup.timer >/dev/null 2>&1 || true
   fi

@@ -9,7 +9,7 @@ TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
 setup_jq_shim() {
-  local shim_dir python_cmd
+  local shim_dir python_cmd python_escaped
   if vetka_command_exists jq; then
     return 0
   fi
@@ -25,10 +25,10 @@ setup_jq_shim() {
 
   shim_dir="${TEST_ROOT}/bin"
   mkdir -p "$shim_dir"
-  cat > "${shim_dir}/jq" <<EOF
+  cat > "${shim_dir}/jq" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-"$python_cmd" - "\$@" <<'PY'
+__PYTHON_CMD__ - "$@" <<'PY'
 import json
 import sys
 
@@ -36,8 +36,12 @@ args = sys.argv[1:]
 raw = False
 exit_mode = False
 null_input = False
+slurp = False
+raw_input = False
 expr = None
 files = []
+arg_values = {}
+argjson_values = {}
 i = 0
 while i < len(args):
     arg = args[i]
@@ -47,6 +51,16 @@ while i < len(args):
         exit_mode = True
     elif arg == "-n":
         null_input = True
+    elif arg == "-s":
+        slurp = True
+    elif arg == "-R":
+        raw_input = True
+    elif arg == "--arg":
+        arg_values[args[i + 1]] = args[i + 2]
+        i += 2
+    elif arg == "--argjson":
+        argjson_values[args[i + 1]] = json.loads(args[i + 2])
+        i += 2
     elif arg.startswith("-"):
         pass
     elif expr is None:
@@ -57,11 +71,25 @@ while i < len(args):
 
 data = None
 if not null_input:
-    if files:
-        with open(files[-1], "r", encoding="utf-8") as handle:
-            data = json.load(handle)
+    if raw_input:
+        if files:
+            with open(files[-1], "r", encoding="utf-8") as handle:
+                lines = [line.rstrip("\n") for line in handle]
+        else:
+            lines = [line.rstrip("\n") for line in sys.stdin]
+        data = lines
     else:
-        data = json.load(sys.stdin)
+        if files:
+            with open(files[-1], "r", encoding="utf-8") as handle:
+                if slurp:
+                    data = [json.loads(line) for line in handle if line.strip()]
+                else:
+                    data = json.load(handle)
+        else:
+            if slurp:
+                data = [json.loads(line) for line in sys.stdin if line.strip()]
+            else:
+                data = json.load(sys.stdin)
 
 if expr is not None:
     expr = " ".join(expr.split())
@@ -94,11 +122,31 @@ elif expr == '.files[]':
         sys.exit(1)
     for item in data["files"]:
       sys.stdout.write(f"{item}\n")
+elif expr == '.':
+    if raw_input and not slurp:
+        for item in data:
+            sys.stdout.write(json.dumps(item, ensure_ascii=False))
+            sys.stdout.write("\n")
+    else:
+        out(data)
+elif expr == '{ format_version: 1, created_at_utc: $created_at_utc, git_commit: $git_commit, git_branch: $git_branch, hostname: $hostname, postgres_version: $postgres_version, compose_project: $compose_project, files: $files }':
+    out({
+        "format_version": 1,
+        "created_at_utc": arg_values["created_at_utc"],
+        "git_commit": arg_values["git_commit"],
+        "git_branch": arg_values["git_branch"],
+        "hostname": arg_values["hostname"],
+        "postgres_version": arg_values["postgres_version"],
+        "compose_project": arg_values["compose_project"],
+        "files": argjson_values["files"],
+    })
 else:
     sys.stderr.write(f"unsupported jq expression in test shim: {expr}\n")
     sys.exit(2)
 PY
 EOF
+  python_escaped="$(printf '%s' "$python_cmd" | sed 's/[&/\]/\\&/g')"
+  sed -i "s#__PYTHON_CMD__#${python_escaped}#" "${shim_dir}/jq"
   chmod 755 "${shim_dir}/jq"
   export PATH="${shim_dir}:$PATH"
 }
@@ -574,6 +622,122 @@ test_restore_sql_uses_template0() {
   grep -q "CREATE DATABASE %I TEMPLATE template0" "${SCRIPT_DIR}/../restore.sh" || fail "restore should create database from template0"
 }
 
+test_apply_retention_is_silent() {
+  local tmpdir output
+  tmpdir="$(make_temp_dir)"
+  trap 'rm -rf "$tmpdir"' RETURN
+  output="$(
+    vetka_assert_safe_backup_dir() {
+      printf 'LEAKED-PATH\n'
+    }
+    vetka_apply_retention "$tmpdir" 14
+  )"
+  [[ -z "$output" ]] || fail "vetka_apply_retention should not print canonical path"
+}
+
+test_install_backup_units_is_silent() {
+  local tmpdir output
+  tmpdir="$(make_temp_dir)"
+  trap 'rm -rf "$tmpdir"' RETURN
+  export VETKA_SYSTEMD_SERVICE_FILE="${tmpdir}/vetka-backend-backup.service"
+  export VETKA_SYSTEMD_TIMER_FILE="${tmpdir}/vetka-backend-backup.timer"
+  output="$(
+    vetka_assert_safe_backup_dir() {
+      printf 'LEAKED-PATH\n'
+    }
+    systemctl() { return 0; }
+    systemd-analyze() { return 0; }
+    export -f systemctl systemd-analyze
+    vetka_install_backup_units "/opt/vetka-backend-panel" "/var/backups/vetka-backend-panel" "*-*-* 03:30:00 UTC"
+  )"
+  [[ -z "$output" ]] || fail "vetka_install_backup_units should not print canonical path"
+  unset VETKA_SYSTEMD_SERVICE_FILE VETKA_SYSTEMD_TIMER_FILE
+}
+
+test_backup_create_stdout_contract() {
+  local tmpdir project backup_dir output line_count expected_path docker_stub hook stderr_file
+  tmpdir="$(make_temp_dir)"
+  trap 'rm -rf "$tmpdir"' RETURN
+  project="${tmpdir}/project"
+  backup_dir="${tmpdir}/safe-backups"
+  mkdir -p "${project}/scripts" "$backup_dir"
+  python - "${SCRIPT_DIR}/../backup.sh" "${project}/backup.sh" <<'PY'
+import pathlib, sys
+src = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+src = src.replace('\nmain "$@"\n', '\n')
+pathlib.Path(sys.argv[2]).write_text(src, encoding="utf-8")
+PY
+  cp "${SCRIPT_DIR}/../scripts/backup-common.sh" "${project}/scripts/backup-common.sh"
+  cat > "${project}/docker-compose.yml" <<'EOF'
+services:
+  postgres:
+    image: postgres:16-alpine
+EOF
+  cat > "${project}/.env" <<EOF
+BACKUP_DIR=$backup_dir
+BACKUP_RETENTION_DAYS=14
+EOF
+  printf 'panel\n' > "${project}/Caddyfile"
+  printf 'override\n' > "${project}/docker-compose.override.yml"
+  unset BACKUP_DIR BACKUP_RETENTION_DAYS BACKUP_ON_CALENDAR BACKUP_BEFORE_UPDATE ENABLE_HTTPS POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB PANEL_PUBLIC_BASE_URL HTTP_ADDR COMPOSE_PROJECT_NAME || true
+  docker_stub="${tmpdir}/docker"
+  cat > "$docker_stub" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "$1" == "compose" && "$2" == "up" ]]; then
+  exit 0
+fi
+if [[ "$1" == "compose" && "$2" == "exec" && "$5" == "sh" ]]; then
+  case "$7" in
+    *pg_isready*)
+      exit 0
+      ;;
+    *pg_dump*)
+      printf 'fake-custom-dump'
+      exit 0
+      ;;
+    *postgres\ --version*)
+      printf 'postgres (PostgreSQL) 16.4'
+      exit 0
+      ;;
+  esac
+fi
+exit 1
+EOF
+  chmod 755 "$docker_stub"
+  hook="${tmpdir}/hook.sh"
+  cat > "$hook" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod 755 "$hook"
+  stderr_file="${tmpdir}/backup-create.stderr"
+
+  if ! output="$(
+    export PATH="${tmpdir}:$PATH"
+    export VETKA_PG_RESTORE_LIST_HOOK="$hook"
+    export VETKA_MAINTENANCE_LOCK_FILE="${tmpdir}/maintenance.lock"
+    export VETKA_MAINTENANCE_LOCK_DIR="${tmpdir}/maintenance.lock.d"
+    export QUIET=false
+    cd "$project"
+    source ./backup.sh
+    vetka_assert_safe_backup_dir() {
+      printf '%s\n' "$backup_dir"
+    }
+    OUTPUT_DIR="$backup_dir"
+    create_backup
+  )" 2>"$stderr_file"; then
+    fail "backup.sh create mocked workflow failed: $(tail -n 20 "$stderr_file")"
+  fi
+  line_count="$(printf '%s\n' "$output" | sed '/^$/d' | wc -l | tr -d ' ')"
+  [[ "$line_count" == "1" ]] || fail "backup.sh create should print exactly one stdout line"
+  expected_path="$(find "$backup_dir" -maxdepth 1 -type f -name 'vetka-backend-panel-*.tar.gz' | head -n 1)"
+  [[ "$output" == "$expected_path" ]] || fail "backup.sh create stdout must equal final archive path"
+  if printf '%s\n' "$output" | grep -Fxq "$backup_dir"; then
+    fail "backup.sh create stdout must not contain BACKUP_DIR as a separate line"
+  fi
+}
+
 test_maintenance_lock() {
   local tmpdir
   tmpdir="$(make_temp_dir)"
@@ -630,6 +794,9 @@ test_restore_verify_only_cleans_temp_dir_on_failure
 test_restore_verify_only_calls_full_verifier_once
 test_docker_pg_restore_verifier_command
 test_restore_sql_uses_template0
+test_apply_retention_is_silent
+test_install_backup_units_is_silent
+test_backup_create_stdout_contract
 test_maintenance_lock
 test_systemd_calendar_validation
 
