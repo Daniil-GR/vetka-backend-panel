@@ -189,6 +189,26 @@ vetka_human_size() {
     BEGIN { print human(size) }'
 }
 
+vetka_sorted_unique_lines() {
+  LC_ALL=C sort -u
+}
+
+vetka_sorted_lines() {
+  LC_ALL=C sort
+}
+
+vetka_sort_file_list_stream() {
+  LC_ALL=C grep -v '^$' | LC_ALL=C sort
+}
+
+vetka_reject_duplicates_in_sorted_list() {
+  local label="$1"
+  local list="$2"
+  if [[ -n "$list" ]] && [[ -n "$(printf '%s\n' "$list" | uniq -d)" ]]; then
+    vetka_die "${label} contains duplicate entries"
+  fi
+}
+
 vetka_ensure_dir_mode() {
   local dir="$1"
   local mode="$2"
@@ -358,7 +378,7 @@ vetka_verify_archive_listing() {
 vetka_find_payload_root() {
   local extract_root="$1"
   local entry
-  mapfile -t entries < <(find "$extract_root" -mindepth 1 -maxdepth 1 -type d | sort)
+  mapfile -t entries < <(find "$extract_root" -mindepth 1 -maxdepth 1 -type d | vetka_sorted_lines)
   [[ "${#entries[@]}" -eq 1 ]] || vetka_die "archive must extract to exactly one top-level directory"
   entry="${entries[0]}"
   printf '%s\n' "$entry"
@@ -387,7 +407,7 @@ vetka_collect_payload_files() {
   local payload_root="$1"
   (
     cd "$payload_root"
-    find . -type f -printf '%P\n' | sort
+    find . -type f -printf '%P\n' | vetka_sort_file_list_stream
   )
 }
 
@@ -395,7 +415,7 @@ vetka_collect_expected_metadata_files() {
   local payload_root="$1"
   (
     cd "$payload_root"
-    find . -type f ! -name 'metadata.json' ! -name 'SHA256SUMS' -printf '%P\n' | sort
+    find . -type f ! -name 'metadata.json' ! -name 'SHA256SUMS' -printf '%P\n' | vetka_sort_file_list_stream
   )
 }
 
@@ -404,9 +424,10 @@ vetka_verify_metadata_consistency() {
   local metadata_list actual_list
   vetka_verify_metadata_file "$payload_root"
 
-  metadata_list="$(jq -r '.files[]' "${payload_root}/metadata.json" | LC_ALL=C sort)"
+  metadata_list="$(jq -r '.files[]' "${payload_root}/metadata.json" | vetka_sort_file_list_stream)"
   actual_list="$(vetka_collect_expected_metadata_files "$payload_root")"
 
+  vetka_reject_duplicates_in_sorted_list "metadata.json files" "$metadata_list"
   grep -Fxq "database.dump" <<< "$metadata_list" || vetka_die "metadata.json must list database.dump"
   [[ "$metadata_list" == "$actual_list" ]] || vetka_die "metadata.json files do not match payload files"
 }
@@ -429,9 +450,10 @@ vetka_verify_checksum_file() {
   local payload_root="$1"
   local checksum_file="${payload_root}/SHA256SUMS"
   local checksum_list expected_list
-  checksum_list="$(vetka_parse_checksum_paths "$checksum_file" | LC_ALL=C sort)"
-  expected_list="$(vetka_collect_payload_files "$payload_root" | grep -vx 'SHA256SUMS' | LC_ALL=C sort)"
+  checksum_list="$(vetka_parse_checksum_paths "$checksum_file" | vetka_sort_file_list_stream)"
+  expected_list="$(vetka_collect_payload_files "$payload_root" | grep -vx 'SHA256SUMS' | vetka_sort_file_list_stream)"
 
+  vetka_reject_duplicates_in_sorted_list "SHA256SUMS" "$checksum_list"
   [[ "$checksum_list" == "$expected_list" ]] || vetka_die "SHA256SUMS does not match payload files"
   (
     cd "$payload_root"

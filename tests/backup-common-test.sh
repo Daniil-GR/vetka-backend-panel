@@ -245,8 +245,34 @@ write_checksums() {
   local payload_root="$1"
   (
     cd "$payload_root"
-    find . -type f ! -name 'SHA256SUMS' -printf '%P\n' | sort | xargs sha256sum > SHA256SUMS
+    find . -type f ! -name 'SHA256SUMS' -printf '%P\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
   )
+}
+
+make_ordered_payload() {
+  local root="$1"
+  mkdir -p "${root}/payload/config" "${root}/payload/reference"
+  printf 'dump' > "${root}/payload/database.dump"
+  printf 'env' > "${root}/payload/config/.env"
+  printf 'caddy' > "${root}/payload/config/Caddyfile"
+  printf 'override' > "${root}/payload/config/docker-compose.override.yml"
+  printf 'compose' > "${root}/payload/reference/docker-compose.yml"
+}
+
+write_metadata_files_json() {
+  local payload_root="$1"
+  shift
+  python - "$payload_root/metadata.json" "$@" <<'PY'
+import json, sys
+path = sys.argv[1]
+files = sys.argv[2:]
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({
+        "format_version": 1,
+        "created_at_utc": "2026-06-13T03:30:00Z",
+        "files": files,
+    }, fh, ensure_ascii=False)
+PY
 }
 
 test_archive_listing_validation() {
@@ -323,6 +349,51 @@ EOF
   rm -f "${payload_root}/unchecked.txt"
   write_checksums "$payload_root"
   sed -i '/metadata.json/d' "${payload_root}/SHA256SUMS"
+  assert_fail vetka_verify_extracted_payload_basic "$payload_root"
+
+  cat > "${payload_root}/metadata.json" <<'EOF'
+{"format_version":1,"created_at_utc":"2026-06-13T03:30:00Z","files":["database.dump","database.dump"]}
+EOF
+  write_checksums "$payload_root"
+  assert_fail vetka_verify_extracted_payload_basic "$payload_root"
+
+  cat > "${payload_root}/metadata.json" <<'EOF'
+{"format_version":1,"created_at_utc":"2026-06-13T03:30:00Z","files":["database.dump"]}
+EOF
+  write_checksums "$payload_root"
+  printf '\n%s\n' "$(head -n 1 "${payload_root}/SHA256SUMS")" >> "${payload_root}/SHA256SUMS"
+  assert_fail vetka_verify_extracted_payload_basic "$payload_root"
+}
+
+test_locale_independent_payload_sorting() {
+  local tmpdir payload_root locale_utf
+  tmpdir="$(make_temp_dir)"
+  trap 'rm -rf "$tmpdir"' RETURN
+  make_ordered_payload "$tmpdir"
+  payload_root="${tmpdir}/payload"
+  write_metadata_files_json "$payload_root" \
+    "reference/docker-compose.yml" \
+    "config/docker-compose.override.yml" \
+    "database.dump" \
+    "config/.env" \
+    "config/Caddyfile"
+  write_checksums "$payload_root"
+
+  LC_ALL=C assert_ok vetka_verify_extracted_payload_basic "$payload_root"
+
+  locale_utf="$(locale -a 2>/dev/null | grep -E '^(en_US|C\.utf8|C\.UTF-8|en_US\.utf8|en_US\.UTF-8)$' | head -n 1 || true)"
+  if [[ -n "$locale_utf" ]]; then
+    LC_ALL="$locale_utf" assert_ok vetka_verify_extracted_payload_basic "$payload_root"
+  fi
+
+  write_metadata_files_json "$payload_root" \
+    "config/.env" \
+    "config/Caddyfile" \
+    "config/docker-compose.override.yml" \
+    "database.dump" \
+    "reference/docker-compose.yml" \
+    "config/Caddyfile"
+  write_checksums "$payload_root"
   assert_fail vetka_verify_extracted_payload_basic "$payload_root"
 }
 
@@ -550,6 +621,7 @@ test_env_parser
 test_env_preserve_and_overwrite
 test_archive_listing_validation
 test_payload_metadata_and_checksum_validation
+test_locale_independent_payload_sorting
 test_invalid_dump_rejected_when_verifier_available
 test_failed_verification_cleans_temp_dir
 test_restore_verify_only_rejects_corrupted_archive

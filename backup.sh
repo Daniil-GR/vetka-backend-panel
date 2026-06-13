@@ -12,10 +12,14 @@ OUTPUT_DIR=""
 RETENTION_DAYS_OVERRIDE=""
 NO_RETENTION="false"
 TEMP_DIR=""
+PARTIAL_ARCHIVE=""
 
 cleanup() {
   if [[ -n "${TEMP_DIR:-}" && -d "${TEMP_DIR:-}" ]]; then
     rm -rf "$TEMP_DIR"
+  fi
+  if [[ -n "${PARTIAL_ARCHIVE:-}" && -f "${PARTIAL_ARCHIVE:-}" ]]; then
+    rm -f -- "$PARTIAL_ARCHIVE"
   fi
   vetka_release_maintenance_lock
 }
@@ -101,6 +105,7 @@ create_backup() {
   short_sha="$(vetka_git_short_commit)"
   archive_name="$(vetka_archive_basename "$timestamp" "$short_sha")"
   archive_path="${BACKUP_DIR}/${archive_name}"
+  PARTIAL_ARCHIVE="${BACKUP_DIR}/.${archive_name}.partial"
 
   TEMP_DIR="$(mktemp -d "${BACKUP_DIR}/.tmp.XXXXXXXX")"
   chmod 700 "$TEMP_DIR"
@@ -137,7 +142,7 @@ create_backup() {
   local files_json
   files_json="$(
     cd "$payload_root"
-    find . -type f ! -name 'metadata.json' ! -name 'SHA256SUMS' -printf '%P\n' | sort | jq -R . | jq -s .
+    find . -type f ! -name 'metadata.json' ! -name 'SHA256SUMS' -printf '%P\n' | vetka_sort_file_list_stream | jq -R . | jq -s .
   )"
 
   jq -n \
@@ -162,14 +167,17 @@ create_backup() {
 
   (
     cd "$payload_root"
-    find . -type f ! -name 'SHA256SUMS' -printf '%P\n' | sort | xargs sha256sum > SHA256SUMS
+    find . -type f ! -name 'SHA256SUMS' -printf '%P\n' | vetka_sort_file_list_stream | xargs sha256sum > SHA256SUMS
   )
   chmod 600 "${payload_root}/SHA256SUMS"
 
-  tar -czf "$archive_path" -C "$TEMP_DIR" "$(basename "$payload_root")"
-  chmod 600 "$archive_path"
+  rm -f -- "$PARTIAL_ARCHIVE"
+  tar -czf "$PARTIAL_ARCHIVE" -C "$TEMP_DIR" "$(basename "$payload_root")"
+  chmod 600 "$PARTIAL_ARCHIVE"
 
-  vetka_verify_archive_file_full "$archive_path"
+  vetka_verify_archive_file_full "$PARTIAL_ARCHIVE"
+  mv -- "$PARTIAL_ARCHIVE" "$archive_path"
+  PARTIAL_ARCHIVE=""
 
   if [[ "$NO_RETENTION" != "true" ]]; then
     vetka_apply_retention "$BACKUP_DIR" "$BACKUP_RETENTION_DAYS"
