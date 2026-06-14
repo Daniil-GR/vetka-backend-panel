@@ -3,55 +3,55 @@
 {{define "user-detail-content"}}
 <section class="page-header">
   <div>
-    <p class="eyebrow">User Detail</p>
+    <p class="eyebrow">{{t .Locale "user_detail.eyebrow"}}</p>
     <h1>{{.User.Username}}</h1>
-    <p class="page-intro">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}No display name set{{end}}</p>
+    <p class="page-intro">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{t .Locale "status.no_display_name"}}{{end}}</p>
   </div>
   <div class="page-actions">
     <span class="badge badge-{{.UserStatusTone}}">{{.UserStatusLabel}}</span>
-    <form method="post" action="/users/{{.User.ID}}/sync"><button class="button button-secondary" type="submit">Sync Affected Nodes</button></form>
+    <form method="post" action="/users/{{.User.ID}}/sync"><button class="button button-secondary" type="submit">{{t .Locale "user_detail.sync_nodes"}}</button></form>
     {{if .User.Enabled}}
-    <form method="post" action="/users/{{.User.ID}}/disable"><button class="button button-ghost" type="submit">Disable</button></form>
+    <form method="post" action="/users/{{.User.ID}}/disable"><button class="button button-ghost" type="submit">{{t .Locale "user_detail.disable"}}</button></form>
     {{else}}
-    <form method="post" action="/users/{{.User.ID}}/enable"><button class="button button-secondary" type="submit">Enable</button></form>
+    <form method="post" action="/users/{{.User.ID}}/enable"><button class="button button-secondary" type="submit">{{t .Locale "user_detail.enable"}}</button></form>
     {{end}}
   </div>
 </section>
 
 <div class="content-grid content-grid--detail">
   <section class="panel">
-    <div class="panel__header"><div><h2>Overview</h2><p>{{.SubscriptionExpiryText}}</p></div></div>
-    <dl class="detail-grid detail-grid--wide">
-      <div><dt>Status</dt><dd><span class="badge badge-{{.UserStatusTone}}">{{.UserStatusLabel}}</span></dd></div>
-      <div><dt>Username</dt><dd>{{.User.Username}}</dd></div>
-      <div><dt>Display Name</dt><dd>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}-{{end}}</dd></div>
-      <div><dt>Expires At</dt><dd>{{if .User.ExpiresAt}}{{formatTime .User.ExpiresAt}}{{else}}Unlimited{{end}}</dd></div>
-      <div><dt>Remaining</dt><dd>{{timeRemaining .User.ExpiresAt}}</dd></div>
-      <div><dt>Quota</dt><dd>{{if gt .User.QuotaMB 0}}{{.User.QuotaMB}} MB{{else}}Unlimited{{end}}</dd></div>
-      <div><dt>Notes</dt><dd>{{if .User.Notes}}{{.User.Notes}}{{else}}-{{end}}</dd></div>
-      <div><dt>Subscription Token</dt><dd><code>{{.MaskedToken}}</code></dd></div>
-      <div><dt>Assigned Nodes</dt><dd>{{.AssignedNodeCount}}</dd></div>
+    <div class="panel__header"><div><h2>{{t .Locale "user_detail.overview"}}</h2><p>{{.SubscriptionExpiryText}}</p></div></div>
+    <dl class="detail-grid detail-grid--wide overview-grid">
+      <div><dt>{{t .Locale "user_detail.status"}}</dt><dd><span class="badge badge-{{.UserStatusTone}}">{{.UserStatusLabel}}</span></dd></div>
+      <div><dt>{{t .Locale "users.username"}}</dt><dd class="technical-value">{{.User.Username}}</dd></div>
+      <div><dt>{{t .Locale "users.display_name"}}</dt><dd>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}-{{end}}</dd></div>
+      <div><dt>{{t .Locale "users.expires_at"}}</dt><dd>{{if .User.ExpiresAt}}{{formatTime .Locale .User.ExpiresAt}}{{else}}{{t .Locale "status.unlimited"}}{{end}}</dd></div>
+      <div><dt>{{t .Locale "user_detail.remaining"}}</dt><dd>{{timeRemaining .Locale .User.ExpiresAt}}</dd></div>
+      <div><dt>{{t .Locale "users.quota_mb"}}</dt><dd>{{if gt .User.QuotaMB 0}}{{.User.QuotaMB}} MB{{else}}{{t .Locale "status.unlimited"}}{{end}}</dd></div>
+      <div><dt>{{t .Locale "users.notes"}}</dt><dd>{{if .User.Notes}}{{.User.Notes}}{{else}}-{{end}}</dd></div>
+      <div><dt>{{t .Locale "user_detail.subscription_token"}}</dt><dd><code class="code-value">{{.MaskedToken}}</code></dd></div>
+      <div><dt>{{t .Locale "user_detail.assigned_nodes"}}</dt><dd>{{.AssignedNodeCount}}</dd></div>
     </dl>
   </section>
 
   <section class="panel">
-    <div class="panel__header"><div><h2>Edit User</h2><p>State changes stay POST-only and sync affected nodes afterward.</p></div></div>
+    <div class="panel__header"><div><h2>{{t .Locale "user_detail.edit_title"}}</h2><p>{{t .Locale "user_detail.edit_hint"}}</p></div></div>
     <form method="post" action="/users/{{.User.ID}}" class="form-grid">
-      <label class="field"><span>Username</span><input name="username" value="{{.User.Username}}" required></label>
-      <label class="field"><span>Display Name</span><input name="display_name" value="{{if .User.DisplayName}}{{.User.DisplayName}}{{end}}"></label>
-      <label class="field"><span>Expires At</span><input type="datetime-local" name="expires_at" value="{{formatDateTimeInput .User.ExpiresAt}}"><small>Empty means unlimited. Timezone: {{.AppTimezone}}.</small></label>
-      <label class="field"><span>Quota MB</span><input type="number" name="quota_mb" min="0" value="{{.User.QuotaMB}}"><small><code>0</code> means unlimited metadata.</small></label>
-      <label class="field field-span-2"><span>Notes</span><input name="notes" value="{{if .User.Notes}}{{.User.Notes}}{{end}}"></label>
-      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" {{if .User.Enabled}}checked{{end}}><span>Enabled</span></label>
+      <label class="field"><span>{{t .Locale "users.username"}}</span><input name="username" value="{{.User.Username}}" required></label>
+      <label class="field"><span>{{t .Locale "users.display_name"}}</span><input name="display_name" value="{{if .User.DisplayName}}{{.User.DisplayName}}{{end}}"></label>
+      <label class="field"><span>{{t .Locale "users.expires_at"}}</span><input type="datetime-local" name="expires_at" value="{{formatDateTimeInput .User.ExpiresAt}}"><small>{{t .Locale "users.expires_help"}} {{.AppTimezone}}.</small></label>
+      <label class="field"><span>{{t .Locale "users.quota_mb"}}</span><input type="number" name="quota_mb" min="0" value="{{.User.QuotaMB}}"><small><code>0</code> {{t .Locale "users.quota_help_text"}}</small></label>
+      <label class="field field-span-2"><span>{{t .Locale "users.notes"}}</span><input name="notes" value="{{if .User.Notes}}{{.User.Notes}}{{end}}"></label>
+      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" {{if .User.Enabled}}checked{{end}}><span>{{t .Locale "users.enabled"}}</span></label>
       <div class="field-span-2 form-actions">
-        <button class="button button-primary" type="submit">Save</button>
+        <button class="button button-primary" type="submit">{{t .Locale "user_detail.save"}}</button>
       </div>
     </form>
   </section>
 </div>
 
 <section class="panel">
-  <div class="panel__header"><div><h2>Subscription Links</h2><p>All QR codes are generated locally in the browser. Nothing leaves the panel.</p></div></div>
+  <div class="panel__header"><div><h2>{{t .Locale "user_detail.subscription_links"}}</h2><p>{{t .Locale "user_detail.subscription_hint"}}</p></div></div>
   <div class="subscription-groups">
     {{range .SubscriptionGroups}}
     <section class="subgroup">
@@ -62,9 +62,9 @@
           <label>{{.Label}}</label>
           <div class="copy-field__row">
             <input type="text" readonly value="{{.URL}}">
-            <button type="button" class="button button-secondary" data-copy-text="{{.URL}}">{{template "icon-copy" $}}<span data-copy-label>Copy</span></button>
+            <button type="button" class="button button-secondary" data-copy-text="{{.URL}}" data-copy-success="{{t $.Locale "button.copied"}}">{{template "icon-copy" $}}<span data-copy-label>{{t $.Locale "button.copy"}}</span></button>
             {{if .QR}}<button type="button" class="button button-ghost" data-qr-title="{{.Label}}" data-qr-value="{{.URL}}">{{template "icon-qr" $}}<span>QR</span></button>{{end}}
-            <a class="button button-ghost" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{template "icon-external" $}}<span>Open</span></a>
+            <a class="button button-ghost" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{template "icon-external" $}}<span>{{t $.Locale "button.open"}}</span></a>
           </div>
         </div>
         {{end}}
@@ -76,32 +76,32 @@
 
 <div class="content-grid content-grid--detail">
   <section class="panel">
-    <div class="panel__header"><div><h2>Assigned Nodes</h2><p>Protocol credentials stay masked in normal UI surfaces.</p></div><button type="button" class="button button-secondary" data-dialog-open="assign-node-dialog">Assign Node</button></div>
+    <div class="panel__header"><div><h2>{{t .Locale "user_detail.assigned_nodes"}}</h2><p>{{t .Locale "user_detail.assigned_hint"}}</p></div><button type="button" class="button button-secondary" data-dialog-open="assign-node-dialog">{{t .Locale "user_detail.assign_node"}}</button></div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Node</th><th>Protocol</th><th>Credentials</th><th>Access</th><th>Node State</th><th>Actions</th></tr></thead>
+        <thead><tr><th>{{t .Locale "user_detail.node"}}</th><th>{{t .Locale "user_detail.protocol"}}</th><th>{{t .Locale "user_detail.credentials"}}</th><th>{{t .Locale "user_detail.access"}}</th><th>{{t .Locale "user_detail.node_state"}}</th><th>{{t .Locale "users.table.actions"}}</th></tr></thead>
         <tbody>
           {{range .Access}}
           <tr>
-            <td><a class="row-link" href="/nodes/{{.NodeID}}"><strong>{{.NodeName}}</strong><span>{{.NodeSetupState}}</span></a></td>
+            <td><a class="row-link" href="/nodes/{{.NodeID}}"><strong>{{.NodeName}}</strong><span>{{localizedStatusLabel $.Locale .NodeSetupState}}</span></a></td>
             <td><span class="badge {{if eq .NodeProtocolType "mieru"}}protocol-mieru{{else}}protocol-naive{{end}}">{{.NodeProtocolType}}</span></td>
-            <td><code>{{.MaskedProtocolUsername}}</code><br><code>{{.MaskedProtocolPassword}}</code></td>
-            <td><span class="badge {{if .Enabled}}badge-success{{else}}badge-disabled{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</span></td>
-            <td><span class="badge {{if .NodeEnabled}}badge-success{{else}}badge-disabled{{end}}">{{if .NodeEnabled}}Visible{{else}}Hidden{{end}}</span></td>
+            <td><code class="code-value">{{.MaskedProtocolUsername}}</code><br><code class="code-value">{{.MaskedProtocolPassword}}</code></td>
+            <td><span class="badge {{if .Enabled}}badge-success{{else}}badge-disabled{{end}}">{{if .Enabled}}{{t $.Locale "status.enabled"}}{{else}}{{t $.Locale "status.disabled_access"}}{{end}}</span></td>
+            <td><span class="badge {{if .NodeEnabled}}badge-success{{else}}badge-disabled{{end}}">{{if .NodeEnabled}}{{t $.Locale "status.visible"}}{{else}}{{t $.Locale "status.hidden"}}{{end}}</span></td>
             <td class="table-actions">
               {{if .Enabled}}
-              <form method="post" action="/users/{{$.User.ID}}/nodes/{{.ID}}/disable"><button class="button button-ghost" type="submit">Disable</button></form>
+              <form method="post" action="/users/{{$.User.ID}}/nodes/{{.ID}}/disable"><button class="button button-ghost" type="submit">{{t $.Locale "user_detail.disable"}}</button></form>
               {{else}}
-              <form method="post" action="/users/{{$.User.ID}}/nodes/{{.ID}}/enable"><button class="button button-secondary" type="submit">Enable</button></form>
+              <form method="post" action="/users/{{$.User.ID}}/nodes/{{.ID}}/enable"><button class="button button-secondary" type="submit">{{t $.Locale "user_detail.enable"}}</button></form>
               {{end}}
-              <form method="post" action="/users/{{$.User.ID}}/unassign-node" data-confirm="Unassign this node and sync it?">
+              <form method="post" action="/users/{{$.User.ID}}/unassign-node" data-confirm="{{t $.Locale "user_detail.unassign_confirm"}}">
                 <input type="hidden" name="node_id" value="{{.NodeID}}">
-                <button class="button button-danger" type="submit">Unassign</button>
+                <button class="button button-danger" type="submit">{{t $.Locale "user_detail.unassign"}}</button>
               </form>
             </td>
           </tr>
           {{else}}
-          <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>No node assignments yet</h3></div></td></tr>
+          <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>{{t .Locale "user_detail.no_assignments"}}</h3></div></td></tr>
           {{end}}
         </tbody>
       </table>
@@ -109,30 +109,30 @@
   </section>
 
   <section class="panel danger-zone">
-    <div class="panel__header"><div><h2>Danger Zone</h2><p>Use with intention; these actions can revoke access or remove the user entirely.</p></div></div>
+    <div class="panel__header"><div><h2>{{t .Locale "user_detail.danger"}}</h2><p>{{t .Locale "user_detail.danger_hint"}}</p></div></div>
     <div class="stack">
       {{if .User.Enabled}}
-      <form method="post" action="/users/{{.User.ID}}/disable"><button class="button button-danger" type="submit">Disable User</button></form>
+      <form method="post" action="/users/{{.User.ID}}/disable"><button class="button button-danger" type="submit">{{t .Locale "user_detail.disable_user"}}</button></form>
       {{else}}
-      <form method="post" action="/users/{{.User.ID}}/enable"><button class="button button-secondary" type="submit">Enable User</button></form>
+      <form method="post" action="/users/{{.User.ID}}/enable"><button class="button button-secondary" type="submit">{{t .Locale "user_detail.enable"}}</button></form>
       {{end}}
-      <form method="post" action="/users/{{.User.ID}}/delete" data-confirm="Delete this user and sync affected nodes?"><button class="button button-danger" type="submit">Delete User</button></form>
+      <form method="post" action="/users/{{.User.ID}}/delete" data-confirm="{{t .Locale "users.delete_confirm"}}"><button class="button button-danger" type="submit">{{t .Locale "user_detail.delete_user"}}</button></form>
     </div>
   </section>
 </div>
 
 <dialog class="dialog" id="assign-node-dialog">
   <div class="dialog__header">
-    <div><p class="eyebrow">Assign Node</p><h2>Attach protocol credentials</h2></div>
-    <button type="button" class="icon-button" data-dialog-close aria-label="Close dialog">x</button>
+    <div><p class="eyebrow">{{t .Locale "user_detail.assign_title"}}</p><h2>{{t .Locale "user_detail.assign_hint"}}</h2></div>
+    <button type="button" class="icon-button" data-dialog-close aria-label="{{t .Locale "topbar.close_dialog"}}">x</button>
   </div>
   <form method="post" action="/users/{{.User.ID}}/assign-node" class="form-grid">
-    <label class="field field-span-2"><span>Node</span><select name="node_id">{{range .Nodes}}<option value="{{.ID}}">{{.Name}} - {{.ProtocolType}}</option>{{end}}</select></label>
-    <label class="field"><span>Protocol Username</span><input name="protocol_username" placeholder="Generated when empty"></label>
-    <label class="field"><span>Protocol Password</span><input name="protocol_password" placeholder="Generated when empty"></label>
+    <label class="field field-span-2"><span>{{t .Locale "user_detail.node"}}</span><select name="node_id">{{range .Nodes}}<option value="{{.ID}}">{{.Name}} - {{.ProtocolType}}</option>{{end}}</select></label>
+    <label class="field"><span>{{t .Locale "user_detail.protocol_username"}}</span><input name="protocol_username" placeholder="{{t .Locale "user_detail.generated_empty"}}"></label>
+    <label class="field"><span>{{t .Locale "user_detail.protocol_password"}}</span><input name="protocol_password" placeholder="{{t .Locale "user_detail.generated_empty"}}"></label>
     <div class="dialog__actions field-span-2">
-      <button type="button" class="button button-ghost" data-dialog-close>Cancel</button>
-      <button type="submit" class="button button-primary">Assign Node</button>
+      <button type="button" class="button button-ghost" data-dialog-close>{{t .Locale "button.cancel"}}</button>
+      <button type="submit" class="button button-primary">{{t .Locale "user_detail.assign_submit"}}</button>
     </div>
   </form>
 </dialog>

@@ -1,6 +1,6 @@
 {{define "app-layout-open"}}
 <!doctype html>
-<html lang="en">
+<html lang="{{.Locale}}" data-qr-default-title="{{t .Locale "qr.default_title"}}">
 {{template "partial-head" .}}
 <body class="app-shell">
   <div class="app-frame">
@@ -19,18 +19,18 @@
   <dialog class="dialog qr-dialog" id="qr-dialog">
     <div class="dialog__header">
       <div>
-        <p class="eyebrow">QR Code</p>
-        <h3 id="qr-title">Subscription QR</h3>
+        <p class="eyebrow">{{t .Locale "qr.title"}}</p>
+        <h3 id="qr-title">{{t .Locale "qr.default_title"}}</h3>
       </div>
-      <button type="button" class="icon-button" data-dialog-close aria-label="Close dialog">×</button>
+      <button type="button" class="icon-button" data-dialog-close aria-label="{{t .Locale "topbar.close_dialog"}}">×</button>
     </div>
     <div class="dialog__content">
       <div class="qr-canvas" id="qr-canvas" aria-hidden="true"></div>
       <p class="dialog__text" id="qr-url"></p>
     </div>
     <div class="dialog__actions">
-      <button type="button" class="button button-secondary" id="qr-copy" data-copy-target="qr-url" data-copy-text="">Copy URL</button>
-      <button type="button" class="button button-ghost" data-dialog-close>Close</button>
+      <button type="button" class="button button-secondary" id="qr-copy" data-copy-target="qr-url" data-copy-text="" data-copy-success="{{t .Locale "button.copied"}}"><span data-copy-label>{{t .Locale "button.copy_url"}}</span></button>
+      <button type="button" class="button button-ghost" data-dialog-close>{{t .Locale "button.close"}}</button>
     </div>
   </dialog>
 </body>
@@ -39,7 +39,7 @@
 
 {{define "login-layout-open"}}
 <!doctype html>
-<html lang="en">
+<html lang="{{.Locale}}" data-qr-default-title="{{t .Locale "qr.default_title"}}">
 {{template "partial-head" .}}
 <body class="login-shell">
 {{end}}

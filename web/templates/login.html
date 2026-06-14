@@ -6,15 +6,23 @@
     <div class="login-brand">
       <span class="brand-mark">{{template "icon-logo" .}}</span>
       <div>
-        <p class="eyebrow">Protected Access</p>
+        <p class="eyebrow">{{t .Locale "login.eyebrow"}}</p>
         <h1>Vetka Backend Panel</h1>
       </div>
     </div>
     {{template "partial-toasts" .}}
     <form method="post" action="/login" class="form-grid">
-      <label class="field field-span-2"><span>Username</span><input name="username" autocomplete="username" required></label>
-      <label class="field field-span-2"><span>Password</span><div class="password-field"><input name="password" type="password" autocomplete="current-password" required data-password-input><button type="button" class="button button-ghost" data-password-toggle>Show</button></div></label>
-      <button class="button button-primary field-span-2" type="submit">Log In</button>
+      <label class="field field-span-2"><span>{{t .Locale "login.username"}}</span><input name="username" autocomplete="username" required></label>
+      <label class="field field-span-2"><span>{{t .Locale "login.password"}}</span><div class="password-field"><input name="password" type="password" autocomplete="current-password" required data-password-input><button type="button" class="button button-ghost" data-password-toggle data-label-show="{{t .Locale "login.show"}}" data-label-hide="{{t .Locale "login.hide"}}">{{t .Locale "login.show"}}</button></div></label>
+      <button class="button button-primary field-span-2" type="submit">{{t .Locale "login.submit"}}</button>
+    </form>
+    <form method="post" action="/ui/language" class="language-switcher language-switcher--login">
+      <input type="hidden" name="return_to" value="{{.CurrentPath}}">
+      <span>{{t .Locale "sidebar.language"}}</span>
+      <div class="language-switcher__actions">
+        <button type="submit" class="button {{if eq .Locale "ru"}}button-primary{{else}}button-ghost{{end}}" name="language" value="ru">{{t .Locale "lang.ru"}}</button>
+        <button type="submit" class="button {{if eq .Locale "en"}}button-primary{{else}}button-ghost{{end}}" name="language" value="en">{{t .Locale "lang.en"}}</button>
+      </div>
     </form>
   </section>
 </main>

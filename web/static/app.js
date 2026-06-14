@@ -35,16 +35,18 @@
         }
         if (labelNode) {
           const original = target.getAttribute("data-copy-original-label") || labelNode.textContent || "";
+          const successLabel = target.getAttribute("data-copy-success") || "Copied";
           target.setAttribute("data-copy-original-label", original);
-          labelNode.textContent = "Copied";
+          labelNode.textContent = successLabel;
           const timerId = window.setTimeout(() => {
             labelNode.textContent = original;
           }, 1400);
           copyButtonTimers.set(target, timerId);
         } else {
           const original = target.getAttribute("data-copy-original-label") || target.textContent || "";
+          const successLabel = target.getAttribute("data-copy-success") || "Copied";
           target.setAttribute("data-copy-original-label", original);
-          target.textContent = "Copied";
+          target.textContent = successLabel;
           const timerId = window.setTimeout(() => {
             target.textContent = original;
           }, 1400);
@@ -75,7 +77,9 @@
       if (!(input instanceof HTMLInputElement)) return;
       const nextType = input.type === "password" ? "text" : "password";
       input.type = nextType;
-      target.textContent = nextType === "password" ? "Show" : "Hide";
+      target.textContent = nextType === "password"
+        ? (target.getAttribute("data-label-show") || "Show")
+        : (target.getAttribute("data-label-hide") || "Hide");
       return;
     }
 
@@ -89,7 +93,7 @@
 
     if (target.hasAttribute("data-qr-value")) {
       const value = target.getAttribute("data-qr-value") || "";
-      const title = target.getAttribute("data-qr-title") || "Subscription QR";
+      const title = target.getAttribute("data-qr-title") || document.documentElement.getAttribute("data-qr-default-title") || "Subscription QR";
       const dialog = document.getElementById("qr-dialog");
       const canvasHost = document.getElementById("qr-canvas");
       const titleEl = document.getElementById("qr-title");

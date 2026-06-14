@@ -45,9 +45,9 @@ func newViewData(title, nav string) viewData {
 
 func navItems(active string) []navItem {
 	items := []navItem{
-		{Label: "Dashboard", URL: "/", Key: "dashboard"},
-		{Label: "Users", URL: "/users", Key: "users"},
-		{Label: "Nodes", URL: "/nodes", Key: "nodes"},
+		{URL: "/", Key: "dashboard"},
+		{URL: "/users", Key: "users"},
+		{URL: "/nodes", Key: "nodes"},
 	}
 	for i := range items {
 		items[i].Active = items[i].Key == active
@@ -79,30 +79,30 @@ func IsUserExpiringSoon(expiresAt *time.Time) bool {
 	return expiresAt.After(now) && expiresAt.Before(now.Add(72*time.Hour))
 }
 
-func userStatus(user users.User) (string, string) {
+func userStatus(locale Locale, user users.User) (string, string) {
 	switch {
 	case !user.Enabled:
-		return "disabled", "Disabled"
+		return "disabled", Translate(locale, "status.disabled")
 	case IsUserExpired(user.ExpiresAt):
-		return "expired", "Expired"
+		return "expired", Translate(locale, "status.expired")
 	case IsUserExpiringSoon(user.ExpiresAt):
-		return "warning", "Expires Soon"
+		return "warning", Translate(locale, "status.expires_soon")
 	default:
-		return "success", "Active"
+		return "success", Translate(locale, "status.active")
 	}
 }
 
-func nodeStatusTone(node nodes.Node) (string, string) {
+func nodeStatusTone(locale Locale, node nodes.Node) (string, string) {
 	if !node.Enabled || node.SetupState == nodes.SetupStateDisabled {
-		return "disabled", "Disabled"
+		return "disabled", Translate(locale, "status.disabled")
 	}
 	switch node.SetupState {
 	case nodes.SetupStateConnected:
-		return "success", "Connected"
+		return "success", Translate(locale, "status.connected")
 	case nodes.SetupStateUnreachable:
-		return "danger", "Unreachable"
+		return "danger", Translate(locale, "status.unreachable")
 	case nodes.SetupStatePlanned:
-		return "warning", "Planned"
+		return "warning", Translate(locale, "status.planned")
 	default:
 		return "muted", formatStatusLabel(node.SetupState)
 	}
@@ -119,21 +119,67 @@ func protocolTone(protocol string) string {
 	}
 }
 
-func TimeRemaining(expiresAt *time.Time) string {
+func TimeRemaining(locale Locale, expiresAt *time.Time) string {
+	return timeRemainingAt(locale, expiresAt, time.Now())
+}
+
+func timeRemainingAt(locale Locale, expiresAt *time.Time, now time.Time) string {
 	if expiresAt == nil {
-		return "Unlimited"
+		return Translate(locale, "status.unlimited")
 	}
-	now := time.Now()
 	if !expiresAt.After(now) {
-		return "Expired"
+		return Translate(locale, "status.expired")
 	}
+
 	duration := expiresAt.Sub(now).Round(time.Minute)
-	if duration < 24*time.Hour {
-		return duration.String()
+	if duration < time.Minute {
+		duration = time.Minute
 	}
+
+	if duration < 24*time.Hour {
+		totalMinutes := int(duration / time.Minute)
+		hours := totalMinutes / 60
+		minutes := totalMinutes % 60
+		if NormalizeLocale(string(locale)) == LocaleRU {
+			switch {
+			case hours > 0 && minutes > 0:
+				return fmt.Sprintf("Осталось %d ч %d мин", hours, minutes)
+			case hours > 0:
+				return fmt.Sprintf("Осталось %d ч", hours)
+			default:
+				return fmt.Sprintf("Осталось %d мин", minutes)
+			}
+		}
+		switch {
+		case hours > 0 && minutes > 0:
+			return fmt.Sprintf("%dh %dm remaining", hours, minutes)
+		case hours > 0:
+			return fmt.Sprintf("%dh remaining", hours)
+		default:
+			return fmt.Sprintf("%dm remaining", minutes)
+		}
+	}
+
 	days := int(duration.Hours()) / 24
 	hours := int(duration.Hours()) % 24
+	if NormalizeLocale(string(locale)) == LocaleRU {
+		return fmt.Sprintf("Осталось %d д %d ч", days, hours)
+	}
 	return fmt.Sprintf("%dd %dh remaining", days, hours)
+}
+
+func MaskSecretCompact(value string) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) == 0 {
+		return ""
+	}
+	if len(runes) <= 4 {
+		return strings.Repeat("•", len(runes))
+	}
+	if len(runes) <= 8 {
+		return string(runes[:2]) + strings.Repeat("•", 4) + string(runes[len(runes)-2:])
+	}
+	return string(runes[:4]) + strings.Repeat("•", 8) + string(runes[len(runes)-4:])
 }
 
 func TruncateText(value string, size int) string {
@@ -322,6 +368,68 @@ func formatStatusLabel(status string) string {
 	return strings.Join(parts, " ")
 }
 
+func localizedStatusLabel(locale Locale, status string) string {
+	key := "status." + strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(status, "-", "_"), " ", "_"))
+	translated := Translate(locale, key)
+	if translated != key {
+		return translated
+	}
+	return formatStatusLabel(status)
+}
+
+func LocalizedStatusLabel(locale Locale, status string) string {
+	return localizedStatusLabel(locale, status)
+}
+
+func FormatTimeForLocale(locale Locale, t any, loc *time.Location) string {
+	if loc == nil {
+		loc = time.UTC
+	}
+	layout := "2006-01-02 15:04"
+	if NormalizeLocale(string(locale)) == LocaleRU {
+		layout = "02.01.2006 15:04"
+	}
+	switch value := t.(type) {
+	case time.Time:
+		return value.In(loc).Format(layout)
+	case *time.Time:
+		if value == nil {
+			return ""
+		}
+		return value.In(loc).Format(layout)
+	default:
+		return ""
+	}
+}
+
+func FormatDateTimeForLocale(locale Locale, t *time.Time, loc *time.Location) string {
+	if t == nil {
+		return Translate(locale, "status.unlimited")
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	layout := "2006-01-02 15:04"
+	if NormalizeLocale(string(locale)) == LocaleRU {
+		layout = "02.01.2006 15:04"
+	}
+	return t.In(loc).Format(layout)
+}
+
+func FormatDateTimeWithZoneForLocale(locale Locale, t *time.Time, loc *time.Location) string {
+	if t == nil {
+		return Translate(locale, "status.unlimited")
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	layout := "2006-01-02 15:04 MST"
+	if NormalizeLocale(string(locale)) == LocaleRU {
+		layout = "02.01.2006 15:04 MST"
+	}
+	return t.In(loc).Format(layout)
+}
+
 func matchesUserFilter(item userListItem, filter, search string) bool {
 	filter = strings.TrimSpace(strings.ToLower(filter))
 	search = strings.TrimSpace(strings.ToLower(search))
@@ -338,13 +446,13 @@ func matchesUserFilter(item userListItem, filter, search string) bool {
 	case "", "all":
 		return true
 	case "active":
-		return item.StatusLabel == "Active"
+		return item.StatusTone == "success"
 	case "expired":
-		return item.StatusLabel == "Expired"
+		return item.StatusTone == "expired"
 	case "disabled":
-		return item.StatusLabel == "Disabled"
+		return item.StatusTone == "disabled"
 	case "expires-soon":
-		return item.StatusLabel == "Expires Soon"
+		return item.StatusTone == "warning"
 	default:
 		return true
 	}

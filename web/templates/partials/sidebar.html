@@ -4,10 +4,10 @@
     <span class="brand-mark">{{template "icon-logo" .}}</span>
     <div>
       <strong>Vetka Backend Panel</strong>
-      <span>Reserve VPN control plane</span>
+      <span>{{t .Locale "brand.tagline"}}</span>
     </div>
   </div>
-  <nav class="sidebar__nav" aria-label="Primary">
+  <nav class="sidebar__nav" aria-label="{{t .Locale "nav.primary"}}">
     {{range .NavItems}}
     <a href="{{.URL}}" class="nav-link {{if .Active}}is-active{{end}}">
       <span>{{.Label}}</span>
@@ -16,7 +16,15 @@
   </nav>
   <div class="sidebar__meta">
     <span class="badge badge-muted">{{.Environment}}</span>
-    <p>Backend ready on protected routes and local DB-backed checks.</p>
+    <p>{{t .Locale "sidebar.backend_ready"}}</p>
+    <form method="post" action="/ui/language" class="language-switcher">
+      <input type="hidden" name="return_to" value="{{.CurrentPath}}">
+      <span>{{t .Locale "sidebar.language"}}</span>
+      <div class="language-switcher__actions">
+        <button type="submit" class="button {{if eq .Locale "ru"}}button-primary{{else}}button-ghost{{end}}" name="language" value="ru">{{t .Locale "lang.ru"}}</button>
+        <button type="submit" class="button {{if eq .Locale "en"}}button-primary{{else}}button-ghost{{end}}" name="language" value="en">{{t .Locale "lang.en"}}</button>
+      </div>
+    </form>
   </div>
 </aside>
 {{end}}

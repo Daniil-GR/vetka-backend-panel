@@ -3,36 +3,36 @@
 {{define "dashboard-content"}}
 <section class="page-header">
   <div>
-    <p class="eyebrow">Infrastructure</p>
-    <h1>Dashboard</h1>
-    <p class="page-intro">Control the reserve VPN plane, keep node state tidy, and catch expiry-driven revokes before they linger.</p>
+    <p class="eyebrow">{{t .Locale "dashboard.eyebrow"}}</p>
+    <h1>{{t .Locale "dashboard.heading"}}</h1>
+    <p class="page-intro">{{t .Locale "dashboard.intro"}}</p>
   </div>
   <div class="page-actions">
-    <form method="post" action="/nodes/sync-all"><button class="button button-primary" type="submit">{{template "icon-sync" .}}<span>Sync All Nodes</span></button></form>
-    <form method="post" action="/users/reconcile-expired"><button class="button button-secondary" type="submit"><span>Reconcile Expired Users</span></button></form>
+    <form method="post" action="/nodes/sync-all"><button class="button button-primary" type="submit">{{template "icon-sync" .}}<span>{{t .Locale "button.sync_all_nodes"}}</span></button></form>
+    <form method="post" action="/users/reconcile-expired"><button class="button button-secondary" type="submit"><span>{{t .Locale "button.reconcile_expired"}}</span></button></form>
   </div>
 </section>
 
 <section class="metrics-grid">
-  <article class="metric-card"><span>Total Users</span><strong>{{.UserStats.Total}}</strong></article>
-  <article class="metric-card"><span>Active Users</span><strong>{{.UserStats.Active}}</strong></article>
-  <article class="metric-card"><span>Expired Users</span><strong>{{.UserStats.Expired}}</strong></article>
-  <article class="metric-card"><span>Disabled Users</span><strong>{{.UserStats.Disabled}}</strong></article>
-  <article class="metric-card"><span>Total Nodes</span><strong>{{.NodeStats.Total}}</strong></article>
-  <article class="metric-card"><span>Connected</span><strong>{{.NodeStats.Connected}}</strong></article>
-  <article class="metric-card"><span>Unreachable</span><strong>{{.NodeStats.Unreachable}}</strong></article>
-  <article class="metric-card"><span>Planned</span><strong>{{.NodeStats.Planned}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.total_users"}}</span><strong>{{.UserStats.Total}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.active_users"}}</span><strong>{{.UserStats.Active}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.expired_users"}}</span><strong>{{.UserStats.Expired}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.disabled_users"}}</span><strong>{{.UserStats.Disabled}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.total_nodes"}}</span><strong>{{.NodeStats.Total}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.connected"}}</span><strong>{{.NodeStats.Connected}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.unreachable"}}</span><strong>{{.NodeStats.Unreachable}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.planned"}}</span><strong>{{.NodeStats.Planned}}</strong></article>
   <article class="metric-card"><span>Mieru</span><strong>{{.NodeStats.Mieru}}</strong></article>
   <article class="metric-card"><span>Naive</span><strong>{{.NodeStats.Naive}}</strong></article>
-  <article class="metric-card"><span>Sync Errors (24h)</span><strong>{{.NodeStats.RecentSyncErrors}}</strong></article>
-  <article class="metric-card"><span>Expires Soon</span><strong>{{.UserStats.ExpiresSoon}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.sync_errors"}}</span><strong>{{.NodeStats.RecentSyncErrors}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "status.expires_soon"}}</span><strong>{{.UserStats.ExpiresSoon}}</strong></article>
 </section>
 
 <div class="content-grid content-grid--dashboard">
   <section class="panel">
     <div class="panel__header">
-      <div><h2>Infrastructure Health</h2><p>Latest node state, versions, and last observed errors.</p></div>
-      <a class="button button-ghost" href="/nodes">View all nodes</a>
+      <div><h2>{{t .Locale "dashboard.infrastructure"}}</h2><p>{{t .Locale "dashboard.infrastructure_hint"}}</p></div>
+      <a class="button button-ghost" href="/nodes">{{t .Locale "dashboard.view_all_nodes"}}</a>
     </div>
     <div class="stack">
       {{range .NodeItems}}
@@ -40,47 +40,47 @@
         <div class="node-card__main">
           <div>
             <h3>{{.Node.Name}}</h3>
-            <p>{{.Node.Domain}}</p>
+            <p class="technical-value">{{.Node.Domain}}</p>
           </div>
           <div class="node-card__badges">
             <span class="badge {{.ProtocolTone}}">{{.Node.ProtocolType}}</span>
             <span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span>
-            {{if not .Node.Enabled}}<span class="badge badge-disabled">Hidden</span>{{end}}
+            {{if not .Node.Enabled}}<span class="badge badge-disabled">{{t $.Locale "status.hidden"}}</span>{{end}}
           </div>
         </div>
         <dl class="detail-grid">
-          <div><dt>Desired</dt><dd>{{.Node.DesiredConfigVersion}}</dd></div>
-          <div><dt>Applied</dt><dd>{{.Node.LastAppliedVersion}}</dd></div>
-          <div><dt>Last Seen</dt><dd>{{formatTime .Node.LastSeenAt}}</dd></div>
-          <div><dt>Assigned Users</dt><dd>{{.AssignedUserCount}}</dd></div>
+          <div><dt>{{t $.Locale "dashboard.desired"}}</dt><dd>{{.Node.DesiredConfigVersion}}</dd></div>
+          <div><dt>{{t $.Locale "dashboard.applied"}}</dt><dd>{{.Node.LastAppliedVersion}}</dd></div>
+          <div><dt>{{t $.Locale "dashboard.last_seen"}}</dt><dd>{{formatTime $.Locale .Node.LastSeenAt}}</dd></div>
+          <div><dt>{{t $.Locale "dashboard.assigned_users"}}</dt><dd>{{.AssignedUserCount}}</dd></div>
         </dl>
-        {{if .LastErrorPreview}}<p class="error-inline">{{.LastErrorPreview}}</p>{{end}}
+        {{if .LastErrorPreview}}<p class="error-inline technical-value">{{.LastErrorPreview}}</p>{{end}}
       </a>
       {{else}}
-      <div class="empty-state"><h3>No nodes yet</h3><p>Add the first planned or adopted node to start managing infrastructure.</p></div>
+      <div class="empty-state"><h3>{{t .Locale "dashboard.no_nodes"}}</h3><p>{{t .Locale "dashboard.no_nodes_hint"}}</p></div>
       {{end}}
     </div>
   </section>
 
   <section class="panel">
     <div class="panel__header">
-      <div><h2>Upcoming Expirations</h2><p>Rendered in {{.AppTimezone}}.</p></div>
-      <a class="button button-ghost" href="/users">View users</a>
+      <div><h2>{{t .Locale "dashboard.upcoming"}}</h2><p>{{t .Locale "dashboard.upcoming_hint"}} {{.AppTimezone}}.</p></div>
+      <a class="button button-ghost" href="/users">{{t .Locale "dashboard.view_users"}}</a>
     </div>
     <div class="stack">
       {{range .UpcomingUsers}}
       <a class="list-row" href="/users/{{.User.ID}}">
         <div>
           <strong>{{.User.Username}}</strong>
-          <p>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}No display name{{end}}</p>
+          <p>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{t $.Locale "status.no_display_name"}}{{end}}</p>
         </div>
         <div class="list-row__meta">
           <span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span>
-          <span>{{formatTime .User.ExpiresAt}}</span>
+          <span>{{formatTime $.Locale .User.ExpiresAt}}</span>
         </div>
       </a>
       {{else}}
-      <div class="empty-state"><h3>No upcoming expirations</h3><p>The next revoke window is quiet right now.</p></div>
+      <div class="empty-state"><h3>{{t .Locale "dashboard.no_upcoming"}}</h3><p>{{t .Locale "dashboard.no_upcoming_hint"}}</p></div>
       {{end}}
     </div>
   </section>
@@ -88,15 +88,15 @@
 
 <section class="panel">
   <div class="panel__header">
-    <div><h2>Recent Sync Events</h2><p>Latest backend-to-node sync attempts.</p></div>
+    <div><h2>{{t .Locale "dashboard.recent_sync"}}</h2><p>{{t .Locale "dashboard.recent_sync_hint"}}</p></div>
   </div>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Timestamp</th><th>Node</th><th>Config Version</th><th>Status</th><th>HTTP</th><th>Error</th></tr></thead>
+      <thead><tr><th>{{t .Locale "dashboard.timestamp"}}</th><th>{{t .Locale "dashboard.node"}}</th><th>{{t .Locale "dashboard.config_version"}}</th><th>{{t .Locale "dashboard.status"}}</th><th>{{t .Locale "dashboard.http"}}</th><th>{{t .Locale "dashboard.error"}}</th></tr></thead>
       <tbody>
         {{range .RecentEvents}}
         <tr>
-          <td>{{formatTime .Event.CreatedAt}}</td>
+          <td>{{formatTime $.Locale .Event.CreatedAt}}</td>
           <td>{{.NodeName}}</td>
           <td>{{.Event.ConfigVersion}}</td>
           <td><span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span></td>
@@ -111,7 +111,7 @@
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>No sync events yet</h3></div></td></tr>
+        <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>{{t .Locale "dashboard.no_sync_events"}}</h3></div></td></tr>
         {{end}}
       </tbody>
     </table>

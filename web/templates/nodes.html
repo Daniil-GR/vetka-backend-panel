@@ -3,21 +3,21 @@
 {{define "nodes-content"}}
 <section class="page-header">
   <div>
-    <p class="eyebrow">Node Fleet</p>
-    <h1>Nodes</h1>
-    <p class="page-intro">Adopt existing agents, stage planned nodes, and inspect sync health without exposing raw secrets.</p>
+    <p class="eyebrow">{{t .Locale "nodes.eyebrow"}}</p>
+    <h1>{{t .Locale "nodes.heading"}}</h1>
+    <p class="page-intro">{{t .Locale "nodes.intro"}}</p>
   </div>
   <div class="page-actions">
-    <button type="button" class="button button-primary" data-dialog-open="create-node-dialog">Add Node</button>
-    <form method="post" action="/nodes/sync-all"><button class="button button-secondary" type="submit">{{template "icon-sync" .}}<span>Sync All</span></button></form>
+    <button type="button" class="button button-primary" data-dialog-open="create-node-dialog">{{t .Locale "nodes.add"}}</button>
+    <form method="post" action="/nodes/sync-all"><button class="button button-secondary" type="submit">{{template "icon-sync" .}}<span>{{t .Locale "nodes.sync_all"}}</span></button></form>
   </div>
 </section>
 
 <section class="metrics-grid metrics-grid--nodes">
-  <article class="metric-card"><span>Connected</span><strong>{{.NodeStats.Connected}}</strong></article>
-  <article class="metric-card"><span>Planned</span><strong>{{.NodeStats.Planned}}</strong></article>
-  <article class="metric-card"><span>Unreachable</span><strong>{{.NodeStats.Unreachable}}</strong></article>
-  <article class="metric-card"><span>Disabled</span><strong>{{.NodeStats.Disabled}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.connected"}}</span><strong>{{.NodeStats.Connected}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.planned"}}</span><strong>{{.NodeStats.Planned}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "dashboard.unreachable"}}</span><strong>{{.NodeStats.Unreachable}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "status.disabled"}}</span><strong>{{.NodeStats.Disabled}}</strong></article>
   <article class="metric-card"><span>Mieru</span><strong>{{.NodeStats.Mieru}}</strong></article>
   <article class="metric-card"><span>Naive</span><strong>{{.NodeStats.Naive}}</strong></article>
 </section>
@@ -25,25 +25,25 @@
 <section class="panel">
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Node</th><th>Protocol</th><th>Setup</th><th>Enabled</th><th>Versions</th><th>Assigned Users</th><th>Last Seen</th><th>Last Error</th><th>Actions</th></tr></thead>
+      <thead><tr><th>{{t .Locale "nodes.table.node"}}</th><th>{{t .Locale "nodes.table.protocol"}}</th><th>{{t .Locale "nodes.table.setup"}}</th><th>{{t .Locale "nodes.table.enabled"}}</th><th>{{t .Locale "nodes.table.versions"}}</th><th>{{t .Locale "nodes.table.assigned_users"}}</th><th>{{t .Locale "nodes.table.last_seen"}}</th><th>{{t .Locale "nodes.table.last_error"}}</th><th>{{t .Locale "nodes.table.actions"}}</th></tr></thead>
       <tbody>
         {{range .NodeItems}}
         <tr>
-          <td><a class="row-link" href="/nodes/{{.Node.ID}}"><strong>{{.Node.Name}}</strong><span>{{.Node.Domain}}</span></a></td>
+          <td><a class="row-link" href="/nodes/{{.Node.ID}}"><strong>{{.Node.Name}}</strong><span class="technical-value">{{.Node.Domain}}</span></a></td>
           <td><span class="badge {{.ProtocolTone}}">{{.Node.ProtocolType}}</span></td>
           <td><span class="badge badge-{{.StatusTone}}">{{.StatusLabel}}</span></td>
-          <td><span class="badge {{if .Node.Enabled}}badge-success{{else}}badge-disabled{{end}}">{{if .Node.Enabled}}Visible{{else}}Hidden{{end}}</span></td>
+          <td><span class="badge {{if .Node.Enabled}}badge-success{{else}}badge-disabled{{end}}">{{if .Node.Enabled}}{{t $.Locale "status.visible"}}{{else}}{{t $.Locale "status.hidden"}}{{end}}</span></td>
           <td>{{.Node.LastAppliedVersion}} / {{.Node.DesiredConfigVersion}}</td>
           <td>{{.AssignedUserCount}}</td>
-          <td>{{formatTime .Node.LastSeenAt}}</td>
-          <td>{{if .LastErrorPreview}}{{.LastErrorPreview}}{{else}}—{{end}}</td>
+          <td>{{formatTime $.Locale .Node.LastSeenAt}}</td>
+          <td>{{if .LastErrorPreview}}<span class="technical-value">{{.LastErrorPreview}}</span>{{else}}—{{end}}</td>
           <td class="table-actions">
-            <a class="button button-ghost" href="/nodes/{{.Node.ID}}">Open</a>
-            <a class="button button-ghost" href="/nodes/{{.Node.ID}}/edit">Edit</a>
+            <a class="button button-ghost" href="/nodes/{{.Node.ID}}">{{t $.Locale "users.open"}}</a>
+            <a class="button button-ghost" href="/nodes/{{.Node.ID}}/edit">{{t $.Locale "node_detail.edit"}}</a>
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="9"><div class="empty-state empty-state--compact"><h3>No nodes yet</h3><p>Create a planned node or adopt an existing agent.</p></div></td></tr>
+        <tr><td colspan="9"><div class="empty-state empty-state--compact"><h3>{{t .Locale "nodes.no_nodes"}}</h3><p>{{t .Locale "nodes.no_nodes_hint"}}</p></div></td></tr>
         {{end}}
       </tbody>
     </table>
@@ -52,69 +52,69 @@
 
 <dialog class="dialog dialog-wide" id="create-node-dialog">
   <div class="dialog__header">
-    <div><p class="eyebrow">Add Node</p><h2>Planned or adopted</h2></div>
-    <button type="button" class="icon-button" data-dialog-close aria-label="Close dialog">×</button>
+    <div><p class="eyebrow">{{t .Locale "nodes.modal_add"}}</p><h2>{{t .Locale "nodes.modal_type"}}</h2></div>
+    <button type="button" class="icon-button" data-dialog-close aria-label="{{t .Locale "topbar.close_dialog"}}">×</button>
   </div>
   <div class="tabs" data-tabs>
-    <button type="button" class="tab is-active" data-tab-trigger="planned">Planned Node</button>
-    <button type="button" class="tab" data-tab-trigger="adopt">Adopt Existing Node</button>
+    <button type="button" class="tab is-active" data-tab-trigger="planned">{{t .Locale "nodes.tab_planned"}}</button>
+    <button type="button" class="tab" data-tab-trigger="adopt">{{t .Locale "nodes.tab_adopt"}}</button>
   </div>
 
   <div class="tab-panel is-active" data-tab-panel="planned">
-    <p class="hint">Use planned mode before the server has `vetka-node-agent` installed. The panel generates the one-time bootstrap secret and install command without calling `/status`.</p>
+    <p class="hint">{{t .Locale "nodes.planned_hint_prefix"}} <code>vetka-node-agent</code>{{t .Locale "nodes.planned_hint_suffix"}} <code>/status</code>.</p>
     <form method="post" action="/nodes" class="form-grid">
       <input type="hidden" name="mode" value="planned">
-      <label class="field"><span>Name</span><input name="name" required></label>
-      <label class="field"><span>Node ID</span><input name="node_id" placeholder="Generated when empty"></label>
-      <label class="field"><span>Domain</span><input name="domain" required></label>
-      <label class="field"><span>API URL</span><input name="api_url" placeholder="Optional until agent install"></label>
-      <label class="field"><span>Protocol</span><select name="protocol_type" data-protocol-select><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
-      <label class="field"><span>Node Secret</span><input name="node_secret" placeholder="Generated when empty"></label>
+      <label class="field"><span>{{t .Locale "node_edit.name"}}</span><input name="name" required></label>
+      <label class="field"><span>{{t .Locale "nodes.node_id"}}</span><input name="node_id" placeholder="{{t .Locale "nodes.node_id_generated"}}"></label>
+      <label class="field"><span>{{t .Locale "node_detail.domain"}}</span><input name="domain" required></label>
+      <label class="field"><span>{{t .Locale "node_detail.api_url"}}</span><input name="api_url" placeholder="{{t .Locale "nodes.api_url_optional"}}"></label>
+      <label class="field"><span>{{t .Locale "user_detail.protocol"}}</span><select name="protocol_type" data-protocol-select><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
+      <label class="field"><span>{{t .Locale "nodes.node_secret"}}</span><input name="node_secret" placeholder="{{t .Locale "nodes.node_secret_generated"}}"></label>
       <div class="protocol-fields protocol-fields--mieru" data-protocol-panel="mieru">
         <div class="form-grid">
-          <label class="field"><span>Mieru Ports</span><input name="mieru_ports" value="2012-2022"></label>
-          <label class="field"><span>Mieru Protocol</span><input name="mieru_protocol" value="TCP"></label>
-          <label class="field"><span>Mieru MTU</span><input name="mieru_mtu" value="1400"></label>
-          <label class="field"><span>Multiplexing</span><input name="mieru_multiplexing" value="MULTIPLEXING_HIGH"></label>
-          <label class="field"><span>Handshake Mode</span><input name="mieru_handshake_mode" value="HANDSHAKE_NO_WAIT"></label>
-          <label class="field"><span>Traffic Pattern</span><input name="mieru_traffic_pattern"></label>
-          <label class="field field-span-2"><span>Profile</span><input name="mieru_profile" placeholder="Defaults to node name"></label>
+          <label class="field"><span>{{t .Locale "node_detail.ports"}}</span><input name="mieru_ports" value="2012-2022"></label>
+          <label class="field"><span>{{t .Locale "user_detail.protocol"}}</span><input name="mieru_protocol" value="TCP"></label>
+          <label class="field"><span>{{t .Locale "node_detail.mtu"}}</span><input name="mieru_mtu" value="1400"></label>
+          <label class="field"><span>{{t .Locale "node_detail.multiplexing"}}</span><input name="mieru_multiplexing" value="MULTIPLEXING_HIGH"></label>
+          <label class="field"><span>{{t .Locale "node_detail.handshake_mode"}}</span><input name="mieru_handshake_mode" value="HANDSHAKE_NO_WAIT"></label>
+          <label class="field"><span>{{t .Locale "node_detail.traffic_pattern"}}</span><input name="mieru_traffic_pattern"></label>
+          <label class="field field-span-2"><span>{{t .Locale "node_detail.profile"}}</span><input name="mieru_profile" placeholder="{{t .Locale "status.no_display_name"}}"></label>
         </div>
       </div>
       <div class="protocol-fields" data-protocol-panel="naive">
-        <label class="field"><span>Naive Port</span><input name="naive_port" value="443"></label>
+        <label class="field"><span>{{t .Locale "node_detail.naive_port"}}</span><input name="naive_port" value="443"></label>
       </div>
-      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" checked><span>Enabled</span></label>
-      <div class="dialog__actions field-span-2"><button type="button" class="button button-ghost" data-dialog-close>Cancel</button><button type="submit" class="button button-primary">Create Planned Node</button></div>
+      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" checked><span>{{t .Locale "users.enabled"}}</span></label>
+      <div class="dialog__actions field-span-2"><button type="button" class="button button-ghost" data-dialog-close>{{t .Locale "button.cancel"}}</button><button type="submit" class="button button-primary">{{t .Locale "nodes.create_planned"}}</button></div>
     </form>
   </div>
 
   <div class="tab-panel" data-tab-panel="adopt">
-    <p class="hint">Use adopt mode when the agent already exists. The panel validates `/status`, confirms protocol and node ID, then aligns versions with the remote node.</p>
+    <p class="hint">{{t .Locale "nodes.adopt_hint_prefix"}} <code>/status</code>{{t .Locale "nodes.adopt_hint_middle"}} <code>node_id</code> {{t .Locale "nodes.adopt_hint_suffix"}}</p>
     <form method="post" action="/nodes" class="form-grid">
       <input type="hidden" name="mode" value="adopt">
-      <label class="field"><span>Name</span><input name="name" required></label>
-      <label class="field"><span>Node ID</span><input name="node_id" required></label>
-      <label class="field"><span>Domain</span><input name="domain" required></label>
-      <label class="field"><span>API URL</span><input name="api_url" placeholder="http://host:2222" required></label>
-      <label class="field"><span>Protocol</span><select name="protocol_type" data-protocol-select><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
-      <label class="field"><span>Node Secret</span><input name="node_secret" required></label>
+      <label class="field"><span>{{t .Locale "node_edit.name"}}</span><input name="name" required></label>
+      <label class="field"><span>{{t .Locale "nodes.node_id"}}</span><input name="node_id" required></label>
+      <label class="field"><span>{{t .Locale "node_detail.domain"}}</span><input name="domain" required></label>
+      <label class="field"><span>{{t .Locale "node_detail.api_url"}}</span><input name="api_url" placeholder="{{t .Locale "nodes.adopt_api_placeholder"}}" required></label>
+      <label class="field"><span>{{t .Locale "user_detail.protocol"}}</span><select name="protocol_type" data-protocol-select><option value="naive">naive</option><option value="mieru">mieru</option></select></label>
+      <label class="field"><span>{{t .Locale "nodes.node_secret"}}</span><input name="node_secret" required></label>
       <div class="protocol-fields protocol-fields--mieru" data-protocol-panel="mieru">
         <div class="form-grid">
-          <label class="field"><span>Mieru Ports</span><input name="mieru_ports" value="2012-2022"></label>
-          <label class="field"><span>Mieru Protocol</span><input name="mieru_protocol" value="TCP"></label>
-          <label class="field"><span>Mieru MTU</span><input name="mieru_mtu" value="1400"></label>
-          <label class="field"><span>Multiplexing</span><input name="mieru_multiplexing" value="MULTIPLEXING_HIGH"></label>
-          <label class="field"><span>Handshake Mode</span><input name="mieru_handshake_mode" value="HANDSHAKE_NO_WAIT"></label>
-          <label class="field"><span>Traffic Pattern</span><input name="mieru_traffic_pattern"></label>
-          <label class="field field-span-2"><span>Profile</span><input name="mieru_profile" placeholder="Defaults to node name"></label>
+          <label class="field"><span>{{t .Locale "node_detail.ports"}}</span><input name="mieru_ports" value="2012-2022"></label>
+          <label class="field"><span>{{t .Locale "user_detail.protocol"}}</span><input name="mieru_protocol" value="TCP"></label>
+          <label class="field"><span>{{t .Locale "node_detail.mtu"}}</span><input name="mieru_mtu" value="1400"></label>
+          <label class="field"><span>{{t .Locale "node_detail.multiplexing"}}</span><input name="mieru_multiplexing" value="MULTIPLEXING_HIGH"></label>
+          <label class="field"><span>{{t .Locale "node_detail.handshake_mode"}}</span><input name="mieru_handshake_mode" value="HANDSHAKE_NO_WAIT"></label>
+          <label class="field"><span>{{t .Locale "node_detail.traffic_pattern"}}</span><input name="mieru_traffic_pattern"></label>
+          <label class="field field-span-2"><span>{{t .Locale "node_detail.profile"}}</span><input name="mieru_profile" placeholder="{{t .Locale "status.no_display_name"}}"></label>
         </div>
       </div>
       <div class="protocol-fields" data-protocol-panel="naive">
-        <label class="field"><span>Naive Port</span><input name="naive_port" value="443"></label>
+        <label class="field"><span>{{t .Locale "node_detail.naive_port"}}</span><input name="naive_port" value="443"></label>
       </div>
-      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" checked><span>Enabled</span></label>
-      <div class="dialog__actions field-span-2"><button type="button" class="button button-ghost" data-dialog-close>Cancel</button><button type="submit" class="button button-primary">Adopt Existing Node</button></div>
+      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" checked><span>{{t .Locale "users.enabled"}}</span></label>
+      <div class="dialog__actions field-span-2"><button type="button" class="button button-ghost" data-dialog-close>{{t .Locale "button.cancel"}}</button><button type="submit" class="button button-primary">{{t .Locale "nodes.create_adopt"}}</button></div>
     </form>
   </div>
 </dialog>

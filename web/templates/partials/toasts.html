@@ -4,7 +4,7 @@
   {{range .FlashItems}}
   <div class="toast toast-{{.Level}}" role="{{if eq .Level "error"}}alert{{else}}status{{end}}">
     <div class="toast__body">{{.Text}}</div>
-    <button type="button" class="icon-button toast__close" data-toast-dismiss aria-label="Dismiss notification">x</button>
+    <button type="button" class="icon-button toast__close" data-toast-dismiss aria-label="{{t $.Locale "toast.dismiss"}}">×</button>
   </div>
   {{end}}
 </div>

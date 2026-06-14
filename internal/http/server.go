@@ -34,16 +34,19 @@ type dbPinger interface {
 func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App {
 	appLocation := loadAppLocation(cfg.AppTimezone)
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
-		"mask":                handlers.Mask,
-		"formatTime":          func(t any) string { return formatTime(t, appLocation) },
-		"formatDateTime":      func(t *time.Time) string { return formatDateTime(t, appLocation) },
-		"formatDateTimeInput": func(t *time.Time) string { return formatDateTimeInput(t, appLocation) },
-		"isUserExpired":       handlers.IsUserExpired,
-		"isUserExpiringSoon":  handlers.IsUserExpiringSoon,
-		"timeRemaining":       func(t *time.Time) string { return handlers.TimeRemaining(t) },
-		"truncateText":        handlers.TruncateText,
-		"safeJSONPreview":     handlers.SafeJSONPreview,
-		"join":                strings.Join,
+		"mask":                 handlers.Mask,
+		"t":                    handlers.Translate,
+		"formatTime":           func(locale handlers.Locale, t any) string { return formatTime(locale, t, appLocation) },
+		"formatDateTime":       func(locale handlers.Locale, t *time.Time) string { return formatDateTime(locale, t, appLocation) },
+		"formatDateTimeInput":  func(t *time.Time) string { return formatDateTimeInput(t, appLocation) },
+		"isUserExpired":        handlers.IsUserExpired,
+		"isUserExpiringSoon":   handlers.IsUserExpiringSoon,
+		"timeRemaining":        func(locale handlers.Locale, t *time.Time) string { return handlers.TimeRemaining(locale, t) },
+		"truncateText":         handlers.TruncateText,
+		"safeJSONPreview":      handlers.SafeJSONPreview,
+		"maskSecretCompact":    handlers.MaskSecretCompact,
+		"localizedStatusLabel": handlers.LocalizedStatusLabel,
+		"join":                 strings.Join,
 	}).ParseFS(web.FS, "templates/*.html", "templates/partials/*.html"))
 
 	nodeRepo := nodes.NewRepository(pool)
@@ -70,6 +73,7 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 	r.Get("/sub/{token}", h.Subscription)
 	r.Get("/login", h.LoginPage)
 	r.Post("/login", h.Login)
+	r.Post("/ui/language", h.SetLanguage)
 
 	r.Group(func(protected chi.Router) {
 		protected.Use(func(next http.Handler) http.Handler { return middleware.UIAuth(cfg, next) })
@@ -171,21 +175,8 @@ func requestLog(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-func formatTime(t any, loc *time.Location) string {
-	if loc == nil {
-		loc = time.UTC
-	}
-	switch value := t.(type) {
-	case time.Time:
-		return value.In(loc).Format("2006-01-02 15:04 MST")
-	case *time.Time:
-		if value == nil {
-			return ""
-		}
-		return value.In(loc).Format("2006-01-02 15:04 MST")
-	default:
-		return ""
-	}
+func formatTime(locale handlers.Locale, t any, loc *time.Location) string {
+	return handlers.FormatTimeForLocale(locale, t, loc)
 }
 
 func formatDateTimeInput(t *time.Time, loc *time.Location) string {
@@ -198,14 +189,8 @@ func formatDateTimeInput(t *time.Time, loc *time.Location) string {
 	return t.In(loc).Format("2006-01-02T15:04")
 }
 
-func formatDateTime(t *time.Time, loc *time.Location) string {
-	if t == nil {
-		return "unlimited"
-	}
-	if loc == nil {
-		loc = time.UTC
-	}
-	return t.In(loc).Format("2006-01-02 15:04 MST")
+func formatDateTime(locale handlers.Locale, t *time.Time, loc *time.Location) string {
+	return handlers.FormatDateTimeForLocale(locale, t, loc)
 }
 
 func loadAppLocation(name string) *time.Location {

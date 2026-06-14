@@ -3,50 +3,50 @@
 {{define "node-edit-content"}}
 <section class="page-header">
   <div>
-    <p class="eyebrow">Node Settings</p>
-    <h1>Edit {{.Node.Name}}</h1>
-    <p class="page-intro">Keep connection metadata current without exposing the stored node secret.</p>
+    <p class="eyebrow">{{t .Locale "node_edit.eyebrow"}}</p>
+    <h1>{{t .Locale "node_edit.heading_prefix"}} {{.Node.Name}}</h1>
+    <p class="page-intro">{{t .Locale "node_edit.intro"}}</p>
   </div>
   <div class="page-actions">
-    <a class="button button-ghost" href="/nodes/{{.Node.ID}}">Back to Detail</a>
-    <form method="post" action="/nodes/{{.Node.ID}}/validate-status"><button class="button button-secondary" type="submit">Validate /status</button></form>
+    <a class="button button-ghost" href="/nodes/{{.Node.ID}}">{{t .Locale "node_edit.back"}}</a>
+    <form method="post" action="/nodes/{{.Node.ID}}/validate-status"><button class="button button-secondary" type="submit">{{t .Locale "node_edit.validate_status"}}</button></form>
   </div>
 </section>
 
 <div class="content-grid content-grid--detail">
   <section class="panel">
-    <div class="panel__header"><div><h2>Identity</h2><p>Current setup state: {{.Node.SetupState}}</p></div></div>
+    <div class="panel__header"><div><h2>{{t .Locale "node_edit.identity"}}</h2><p>{{t .Locale "node_edit.identity_hint"}} {{.Node.SetupState}}</p></div></div>
     <form method="post" action="/nodes/{{.Node.ID}}" class="form-grid">
-      <label class="field"><span>Name</span><input name="name" value="{{.Node.Name}}" required></label>
-      <label class="field"><span>Node ID</span><input name="node_id" value="{{.Node.NodeID}}" required></label>
-      <label class="field"><span>Domain</span><input name="domain" value="{{.Node.Domain}}" required></label>
-      <label class="field"><span>API URL</span><input name="api_url" value="{{.Node.APIURL}}"></label>
-      <label class="field"><span>Protocol</span><select name="protocol_type" data-protocol-select><option value="naive" {{if eq .Node.ProtocolType "naive"}}selected{{end}}>naive</option><option value="mieru" {{if eq .Node.ProtocolType "mieru"}}selected{{end}}>mieru</option></select></label>
-      <label class="field"><span>Node Secret</span><input name="node_secret" placeholder="Leave empty to keep current"></label>
+      <label class="field"><span>{{t .Locale "node_edit.name"}}</span><input name="name" value="{{.Node.Name}}" required></label>
+      <label class="field"><span>{{t .Locale "nodes.node_id"}}</span><input name="node_id" value="{{.Node.NodeID}}" required></label>
+      <label class="field"><span>{{t .Locale "node_detail.domain"}}</span><input name="domain" value="{{.Node.Domain}}" required></label>
+      <label class="field"><span>{{t .Locale "node_detail.api_url"}}</span><input name="api_url" value="{{.Node.APIURL}}"></label>
+      <label class="field"><span>{{t .Locale "user_detail.protocol"}}</span><select name="protocol_type" data-protocol-select><option value="naive" {{if eq .Node.ProtocolType "naive"}}selected{{end}}>naive</option><option value="mieru" {{if eq .Node.ProtocolType "mieru"}}selected{{end}}>mieru</option></select></label>
+      <label class="field"><span>{{t .Locale "nodes.node_secret"}}</span><input name="node_secret" placeholder="{{t .Locale "node_edit.leave_secret"}}"></label>
       <div class="protocol-fields protocol-fields--mieru {{if ne .Node.ProtocolType "mieru"}}is-hidden{{end}}" data-protocol-panel="mieru">
         <div class="form-grid">
-          <label class="field"><span>Mieru Ports</span><input name="mieru_ports" value="{{join .Node.ProtocolSettings.Mieru.Ports ","}}"></label>
-          <label class="field"><span>Mieru Protocol</span><input name="mieru_protocol" value="{{.Node.ProtocolSettings.Mieru.Protocol}}"></label>
-          <label class="field"><span>Mieru MTU</span><input name="mieru_mtu" value="{{.Node.ProtocolSettings.Mieru.MTU}}"></label>
-          <label class="field"><span>Multiplexing</span><input name="mieru_multiplexing" value="{{.Node.ProtocolSettings.Mieru.Multiplexing}}"></label>
-          <label class="field"><span>Handshake Mode</span><input name="mieru_handshake_mode" value="{{.Node.ProtocolSettings.Mieru.HandshakeMode}}"></label>
-          <label class="field"><span>Traffic Pattern</span><input name="mieru_traffic_pattern" value="{{.Node.ProtocolSettings.Mieru.TrafficPattern}}"></label>
-          <label class="field field-span-2"><span>Profile</span><input name="mieru_profile" value="{{.Node.ProtocolSettings.Mieru.Profile}}"></label>
+          <label class="field"><span>{{t .Locale "node_detail.ports"}}</span><input name="mieru_ports" value="{{join .Node.ProtocolSettings.Mieru.Ports ","}}"></label>
+          <label class="field"><span>{{t .Locale "user_detail.protocol"}}</span><input name="mieru_protocol" value="{{.Node.ProtocolSettings.Mieru.Protocol}}"></label>
+          <label class="field"><span>{{t .Locale "node_detail.mtu"}}</span><input name="mieru_mtu" value="{{.Node.ProtocolSettings.Mieru.MTU}}"></label>
+          <label class="field"><span>{{t .Locale "node_detail.multiplexing"}}</span><input name="mieru_multiplexing" value="{{.Node.ProtocolSettings.Mieru.Multiplexing}}"></label>
+          <label class="field"><span>{{t .Locale "node_detail.handshake_mode"}}</span><input name="mieru_handshake_mode" value="{{.Node.ProtocolSettings.Mieru.HandshakeMode}}"></label>
+          <label class="field"><span>{{t .Locale "node_detail.traffic_pattern"}}</span><input name="mieru_traffic_pattern" value="{{.Node.ProtocolSettings.Mieru.TrafficPattern}}"></label>
+          <label class="field field-span-2"><span>{{t .Locale "node_detail.profile"}}</span><input name="mieru_profile" value="{{.Node.ProtocolSettings.Mieru.Profile}}"></label>
         </div>
       </div>
       <div class="protocol-fields {{if ne .Node.ProtocolType "naive"}}is-hidden{{end}}" data-protocol-panel="naive">
-        <label class="field"><span>Naive Port</span><input name="naive_port" value="{{.Node.ProtocolSettings.Naive.Port}}"></label>
+        <label class="field"><span>{{t .Locale "node_detail.naive_port"}}</span><input name="naive_port" value="{{.Node.ProtocolSettings.Naive.Port}}"></label>
       </div>
-      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" {{if .Node.Enabled}}checked{{end}}><span>Enabled</span></label>
-      <p class="hint field-span-2">Disabling a node hides it from newly generated subscriptions. Existing cached client configs may keep working until refresh.</p>
-      <div class="field-span-2 form-actions"><button class="button button-primary" type="submit">Save Node</button></div>
+      <label class="field field-checkbox"><input type="hidden" name="enabled" value="false"><input type="checkbox" name="enabled" value="true" {{if .Node.Enabled}}checked{{end}}><span>{{t .Locale "users.enabled"}}</span></label>
+      <p class="hint field-span-2">{{t .Locale "node_edit.disable_hint"}}</p>
+      <div class="field-span-2 form-actions"><button class="button button-primary" type="submit">{{t .Locale "node_edit.save"}}</button></div>
     </form>
   </section>
 
   <section class="panel danger-zone">
-    <div class="panel__header"><div><h2>Danger Zone</h2><p>This is not an emergency revoke surface.</p></div></div>
-    <form method="post" action="/nodes/{{.Node.ID}}/delete" data-confirm="Delete this node?">
-      <button class="button button-danger" type="submit">Delete Node</button>
+    <div class="panel__header"><div><h2>{{t .Locale "node_detail.danger"}}</h2><p>{{t .Locale "node_edit.danger_hint"}}</p></div></div>
+    <form method="post" action="/nodes/{{.Node.ID}}/delete" data-confirm="{{t .Locale "node_detail.delete_confirm"}}">
+      <button class="button button-danger" type="submit">{{t .Locale "node_detail.delete"}}</button>
     </form>
   </section>
 </div>

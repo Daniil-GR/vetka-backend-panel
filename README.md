@@ -464,6 +464,12 @@ PostgreSQL is not published publicly. All backup and restore actions use the int
 
 Restore success does not require working public DNS. The primary post-restore readiness check is an internal request from inside the `backend` container to `http://127.0.0.1:8080/ready`. A public `PANEL_PUBLIC_BASE_URL/ready` check is useful, but it is only a secondary warning signal because DNS and HTTPS issuance may still be converging after migration.
 
+## UI Language
+
+The admin panel uses Russian by default. English can be selected from the sidebar language switcher, and the choice is stored in the `vetka_ui_language` browser cookie.
+
+The UI locale only affects the server-rendered HTML interface. API responses, subscription formats, backend logs, protocol names, sync payloads, and stored database values do not change with the selected language.
+
 ## Future
 
 Future integration with the main Vetka backend should treat `users + subscriptions` as the access source of truth. `subscriptions.expires_at` is the primary expiration timestamp, `users.subscription_expires_at` can stay a cache or summary, and payments or orders should remain history rather than active access state. The reserve panel should receive the exact subscription end timestamp from the main backend, preserve that exact moment, store absolute time as UTC or `timestamptz`, display it in `Europe/Moscow` when needed, and emit `Subscription-Userinfo expire` as a Unix timestamp. Current access should depend on an enabled user plus an active, not-yet-expired current subscription, while replaced or old subscriptions should not grant access.

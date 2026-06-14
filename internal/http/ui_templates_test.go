@@ -19,20 +19,76 @@ func parseUITemplates(t *testing.T) *template.Template {
 	loc := loadAppLocation("Europe/Moscow")
 	return template.Must(template.New("").Funcs(template.FuncMap{
 		"mask":                handlers.Mask,
-		"formatTime":          func(v any) string { return formatTime(v, loc) },
-		"formatDateTime":      func(v *time.Time) string { return formatDateTime(v, loc) },
+		"t":                   func(locale any, key string) string { return handlers.Translate(normalizeTestLocale(locale), key) },
+		"formatTime":          func(locale any, v any) string { return formatTime(normalizeTestLocale(locale), v, loc) },
+		"formatDateTime":      func(locale any, v *time.Time) string { return formatDateTime(normalizeTestLocale(locale), v, loc) },
 		"formatDateTimeInput": func(v *time.Time) string { return formatDateTimeInput(v, loc) },
 		"isUserExpired":       handlers.IsUserExpired,
 		"isUserExpiringSoon":  handlers.IsUserExpiringSoon,
-		"timeRemaining":       func(v *time.Time) string { return handlers.TimeRemaining(v) },
+		"timeRemaining":       func(locale any, v *time.Time) string { return handlers.TimeRemaining(normalizeTestLocale(locale), v) },
 		"truncateText":        handlers.TruncateText,
 		"safeJSONPreview":     handlers.SafeJSONPreview,
-		"join":                strings.Join,
+		"maskSecretCompact":   handlers.MaskSecretCompact,
+		"localizedStatusLabel": func(locale any, status string) string {
+			return handlers.LocalizedStatusLabel(normalizeTestLocale(locale), status)
+		},
+		"join": strings.Join,
 	}).ParseFS(web.FS, "templates/*.html", "templates/partials/*.html"))
+}
+
+func normalizeTestLocale(value any) handlers.Locale {
+	switch typed := value.(type) {
+	case handlers.Locale:
+		return typed
+	case string:
+		return handlers.NormalizeLocale(typed)
+	default:
+		return handlers.LocaleRU
+	}
 }
 
 func TestTemplatesParse(t *testing.T) {
 	parseUITemplates(t)
+}
+
+func TestDashboardTemplateLocalizesNavigation(t *testing.T) {
+	tmpl := parseUITemplates(t)
+	for _, tc := range []struct {
+		name   string
+		locale handlers.Locale
+		want   []string
+	}{
+		{name: "ru", locale: handlers.LocaleRU, want: []string{"Главная", "Пользователи"}},
+		{name: "en", locale: handlers.LocaleEN, want: []string{"Dashboard", "Users"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := map[string]any{
+				"Locale":        tc.locale,
+				"Title":         "page.dashboard",
+				"NavItems":      []any{map[string]any{"Label": handlers.Translate(tc.locale, "nav.dashboard"), "URL": "/", "Active": true}, map[string]any{"Label": handlers.Translate(tc.locale, "nav.users"), "URL": "/users"}},
+				"Breadcrumbs":   []any{},
+				"FlashItems":    []any{},
+				"Environment":   "DEV",
+				"AppTimezone":   "Europe/Moscow",
+				"CurrentPath":   "/",
+				"NodeStats":     nodes.DashboardStats{},
+				"UserStats":     users.DashboardStats{},
+				"NodeItems":     []any{},
+				"RecentEvents":  []any{},
+				"UpcomingUsers": []any{},
+			}
+			var out bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&out, "dashboard.html", data); err != nil {
+				t.Fatalf("render dashboard: %v", err)
+			}
+			body := out.String()
+			for _, want := range tc.want {
+				if !strings.Contains(body, want) {
+					t.Fatalf("expected %q in %s output: %s", want, tc.name, body)
+				}
+			}
+		})
+	}
 }
 
 func TestUsersTemplateCreateFormUsesDatetimeLocal(t *testing.T) {
@@ -105,6 +161,67 @@ func TestUserDetailTemplateUsesDatetimeLocalValue(t *testing.T) {
 	}
 	if !strings.Contains(body, `type="hidden" name="enabled" value="false"`) {
 		t.Fatalf("edit form must include hidden false enabled field: %s", body)
+	}
+}
+
+func TestQuotaHelpRendersRealCodeMarkup(t *testing.T) {
+	tmpl := parseUITemplates(t)
+	data := map[string]any{
+		"Locale":      handlers.LocaleRU,
+		"Title":       "Users",
+		"NavItems":    []any{},
+		"Breadcrumbs": []any{},
+		"FlashItems":  []any{},
+		"Environment": "DEV",
+		"AppTimezone": "Europe/Moscow",
+		"UserItems":   []any{},
+		"Nodes":       []nodes.Node{},
+		"Filter":      "all",
+		"Search":      "",
+		"Sort":        "created_at",
+		"UserStats":   users.DashboardStats{},
+	}
+	var out bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&out, "users.html", data); err != nil {
+		t.Fatalf("render users template: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "<code>0</code>") {
+		t.Fatalf("expected real code markup in quota help: %s", body)
+	}
+	if strings.Contains(body, "&lt;code&gt;0&lt;/code&gt;") {
+		t.Fatalf("quota help must not contain escaped code tags: %s", body)
+	}
+}
+
+func TestNodesTemplateRendersTechnicalValuesAsCodeWithoutBackticks(t *testing.T) {
+	tmpl := parseUITemplates(t)
+	data := map[string]any{
+		"Locale":      handlers.LocaleRU,
+		"Title":       "Nodes",
+		"NavItems":    []any{},
+		"Breadcrumbs": []any{},
+		"FlashItems":  []any{},
+		"Environment": "DEV",
+		"NodeItems":   []any{},
+		"NodeStats":   nodes.DashboardStats{},
+		"BackendIP":   "127.0.0.1",
+		"DefaultPort": 2222,
+	}
+	var out bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&out, "nodes.html", data); err != nil {
+		t.Fatalf("render nodes template: %v", err)
+	}
+	body := out.String()
+	for _, want := range []string{"<code>vetka-node-agent</code>", "<code>/status</code>", "<code>node_id</code>"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in nodes template: %s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"`vetka-node-agent`", "`/status`", "`node_id`", "&lt;code&gt;/status&lt;/code&gt;"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("unexpected literal/escaped technical marker %q in nodes template: %s", unwanted, body)
+		}
 	}
 }
 
@@ -244,7 +361,7 @@ func TestNodeDetailTemplateMasksNodeSecretAndPasswords(t *testing.T) {
 		"NodeStatusTone":  "success",
 		"NodeStatusLabel": "Connected",
 		"ProtocolTone":    "protocol-mieru",
-		"MaskedSecret":    handlers.Mask("raw-super-secret"),
+		"MaskedSecret":    handlers.MaskSecretCompact("raw-super-secret"),
 		"Node": nodes.Node{
 			ID:                   "node-1",
 			NodeID:               "test-mieru-1",
@@ -294,7 +411,7 @@ func TestNodeDetailTemplateMasksNodeSecretAndPasswords(t *testing.T) {
 	if strings.Contains(body, "proto-user") {
 		t.Fatalf("raw protocol username leaked in template: %s", body)
 	}
-	if !strings.Contains(body, handlers.Mask("raw-super-secret")) {
+	if !strings.Contains(body, handlers.MaskSecretCompact("raw-super-secret")) {
 		t.Fatal("expected masked node secret in template")
 	}
 	if !strings.Contains(body, handlers.SafeOperationalError(lastError)) {
@@ -305,6 +422,49 @@ func TestNodeDetailTemplateMasksNodeSecretAndPasswords(t *testing.T) {
 	}
 	if !strings.Contains(body, handlers.Mask("proto-user")) || !strings.Contains(body, handlers.Mask("proto-password")) {
 		t.Fatalf("expected masked assignment credentials in template: %s", body)
+	}
+}
+
+func TestNodeDetailTemplateLocalizedHeadings(t *testing.T) {
+	tmpl := parseUITemplates(t)
+	node := nodes.Node{ID: "node-1", NodeID: "agent-1", Name: "Node One", ProtocolType: "mieru", Enabled: true, SetupState: "connected"}
+	cases := []struct {
+		name   string
+		locale handlers.Locale
+		want   []string
+	}{
+		{name: "ru", locale: handlers.LocaleRU, want: []string{"Обзор", "Настройки протокола", "Назначенные пользователи"}},
+		{name: "en", locale: handlers.LocaleEN, want: []string{"Overview", "Protocol Settings", "Assigned Users"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := map[string]any{
+				"Locale":          tc.locale,
+				"Title":           "page.node_detail",
+				"NavItems":        []any{},
+				"Breadcrumbs":     []any{},
+				"FlashItems":      []any{},
+				"Environment":     "DEV",
+				"CurrentPath":     "/nodes/node-1",
+				"NodeStatusTone":  "success",
+				"NodeStatusLabel": handlers.Translate(tc.locale, "status.connected"),
+				"ProtocolTone":    "protocol-mieru",
+				"MaskedSecret":    handlers.MaskSecretCompact("raw-super-secret"),
+				"Node":            node,
+				"Assignments":     []any{},
+				"Events":          []any{},
+			}
+			var out bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&out, "node_detail.html", data); err != nil {
+				t.Fatalf("render node detail: %v", err)
+			}
+			body := out.String()
+			for _, want := range tc.want {
+				if !strings.Contains(body, want) {
+					t.Fatalf("expected %q in %s output: %s", want, tc.name, body)
+				}
+			}
+		})
 	}
 }
 
@@ -416,6 +576,12 @@ func TestStyleCSSIncludesExpiredBadgeAndCheckboxSelectors(t *testing.T) {
 	if !strings.Contains(css, `.field-checkbox input[type="checkbox"]`) {
 		t.Fatal("expected dedicated checkbox styling")
 	}
+	if !strings.Contains(css, ".detail-grid > *,") || !strings.Contains(css, ".overview-grid > *") {
+		t.Fatal("expected detail/overview grid children min-width guard")
+	}
+	if !strings.Contains(css, ".technical-value") || !strings.Contains(css, "overflow-wrap: anywhere") {
+		t.Fatal("expected technical value wrapping styles")
+	}
 }
 
 func TestRepresentativeTemplatesRender(t *testing.T) {
@@ -448,7 +614,7 @@ func TestRepresentativeTemplatesRender(t *testing.T) {
 		},
 		"node_detail.html": {
 			"Title": "Node Detail", "NavItems": []any{}, "Breadcrumbs": []any{}, "FlashItems": []any{}, "Environment": "DEV",
-			"NodeStatusTone": "success", "NodeStatusLabel": "Connected", "ProtocolTone": "protocol-mieru", "MaskedSecret": handlers.Mask(node.NodeSecret), "Node": node, "Assignments": []users.NodeUserAccessDetail{}, "Events": []any{},
+			"NodeStatusTone": "success", "NodeStatusLabel": "Connected", "ProtocolTone": "protocol-mieru", "MaskedSecret": handlers.MaskSecretCompact(node.NodeSecret), "Node": node, "Assignments": []users.NodeUserAccessDetail{}, "Events": []any{},
 		},
 		"node_edit.html": {
 			"Title": "Edit Node", "NavItems": []any{}, "Breadcrumbs": []any{}, "FlashItems": []any{}, "Environment": "DEV", "Node": node,

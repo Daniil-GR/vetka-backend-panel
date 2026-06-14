@@ -56,7 +56,7 @@ func Mask(secret string) string {
 }
 
 func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, "login.html", h.loginData(r.URL, ""))
+	h.render(w, r, "login.html", h.loginData(r, ""))
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -65,11 +65,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusUnauthorized)
-	h.render(w, "login.html", h.loginData(r.URL, "Invalid username or password"))
+	h.render(w, r, "login.html", h.loginData(r, "flash.login_invalid"))
 }
 
 func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
+	locale := ResolveLocale(r)
 	nodeStats, _ := h.nodeRepo.DashboardStats(r.Context(), now.Add(-24*time.Hour))
 	userStats, _ := h.userRepo.DashboardStats(r.Context(), now.Add(72*time.Hour))
 	nodesList, _ := h.nodeRepo.List(r.Context())
@@ -84,7 +85,7 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	eventItems := make([]syncEventView, 0, len(events))
 	for _, event := range events {
 		tone := "success"
-		label := strings.ReplaceAll(formatStatusLabel(strings.ReplaceAll(event.Status, "_", " ")), "Http", "HTTP")
+		label := strings.ReplaceAll(localizedStatusLabel(locale, strings.ReplaceAll(event.Status, "_", " ")), "Http", "HTTP")
 		if event.Status != "ok" {
 			tone = "danger"
 		}
@@ -105,7 +106,7 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 
 	upcomingItems := make([]userListItem, 0, len(upcoming))
 	for _, user := range upcoming {
-		statusTone, statusLabel := userStatus(user)
+		statusTone, statusLabel := userStatus(locale, user)
 		upcomingItems = append(upcomingItems, userListItem{
 			User:              user,
 			StatusTone:        statusTone,
@@ -114,30 +115,31 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	data := h.pageData(r.URL, "Dashboard", "dashboard")
-	data["Breadcrumbs"] = []breadcrumb{{Label: "Dashboard", URL: "/"}}
+	data := h.pageData(r, "page.dashboard", "dashboard")
+	data["Breadcrumbs"] = []breadcrumb{{Label: Translate(locale, "nav.dashboard"), URL: "/"}}
 	data["NodeStats"] = nodeStats
 	data["UserStats"] = userStats
-	data["NodeItems"] = makeNodeListItems(nodesList, counts)
+	data["NodeItems"] = makeNodeListItems(locale, nodesList, counts)
 	data["UpcomingUsers"] = upcomingItems
 	data["RecentEvents"] = eventItems
-	h.render(w, "dashboard.html", data)
+	h.render(w, r, "dashboard.html", data)
 }
 
 func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
+	locale := ResolveLocale(r)
 	list, err := h.nodeRepo.List(r.Context())
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
 	counts, _ := h.nodeRepo.AssignedUserCounts(r.Context())
 	nodeStats, _ := h.nodeRepo.DashboardStats(r.Context(), time.Now().Add(-24*time.Hour))
-	data := h.pageData(r.URL, "Nodes", "nodes")
-	data["Breadcrumbs"] = []breadcrumb{{Label: "Nodes", URL: "/nodes"}}
-	data["NodeItems"] = makeNodeListItems(list, counts)
+	data := h.pageData(r, "page.nodes", "nodes")
+	data["Breadcrumbs"] = []breadcrumb{{Label: Translate(locale, "nav.nodes"), URL: "/nodes"}}
+	data["NodeItems"] = makeNodeListItems(locale, list, counts)
 	data["NodeStats"] = nodeStats
 	data["BackendIP"] = h.cfg.BackendPublicIP
 	data["DefaultPort"] = h.cfg.NodeAgentDefaultPort
-	h.render(w, "nodes.html", data)
+	h.render(w, r, "nodes.html", data)
 }
 
 func (h *Handler) CreateNode(w http.ResponseWriter, r *http.Request) {
@@ -148,33 +150,34 @@ func (h *Handler) CreateNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Mode == nodes.NodeModeAdopt {
-		h.redirectWithFlash(w, r, "/nodes", "Existing node adopted and connected", "success")
+		h.redirectWithFlash(w, r, "/nodes", flashText(ResolveLocale(r), "node_adopted_connected"), "success")
 		return
 	}
-	data := h.pageData(r.URL, "Node Created", "nodes")
+	data := h.pageData(r, "page.node_created", "nodes")
+	locale := ResolveLocale(r)
 	data["Breadcrumbs"] = []breadcrumb{
-		{Label: "Nodes", URL: "/nodes"},
-		{Label: "Node Created", URL: ""},
+		{Label: Translate(locale, "nav.nodes"), URL: "/nodes"},
+		{Label: Translate(locale, "page.node_created"), URL: ""},
 	}
 	data["Node"] = node
 	data["BackendIP"] = h.cfg.BackendPublicIP
 	data["DefaultPort"] = h.cfg.NodeAgentDefaultPort
-	h.render(w, "node_created.html", data)
+	h.render(w, r, "node_created.html", data)
 }
 
 func (h *Handler) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	node, err := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
 	assignments, _ := h.userRepo.AccessDetailForNode(r.Context(), node.ID)
 	events, _ := h.nodeRepo.RecentEventsByNode(r.Context(), node.ID, 12)
-
-	statusTone, statusLabel := nodeStatusTone(node)
+	locale := ResolveLocale(r)
+	statusTone, statusLabel := nodeStatusTone(locale, node)
 	eventItems := make([]syncEventView, 0, len(events))
 	for _, event := range events {
 		tone := "success"
-		label := formatStatusLabel(strings.ReplaceAll(event.Status, "_", " "))
+		label := localizedStatusLabel(locale, strings.ReplaceAll(event.Status, "_", " "))
 		label = strings.ReplaceAll(label, "Http", "HTTP")
 		if event.Status != "ok" {
 			tone = "danger"
@@ -207,47 +210,48 @@ func (h *Handler) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	data := h.pageData(r.URL, node.Name, "nodes")
+	data := h.pageData(r, "page.node_detail", "nodes")
 	data["Breadcrumbs"] = []breadcrumb{
-		{Label: "Nodes", URL: "/nodes"},
+		{Label: Translate(locale, "nav.nodes"), URL: "/nodes"},
 		{Label: node.Name, URL: ""},
 	}
 	data["Node"] = node
 	data["NodeStatusTone"] = statusTone
 	data["NodeStatusLabel"] = statusLabel
 	data["ProtocolTone"] = protocolTone(node.ProtocolType)
-	data["MaskedSecret"] = Mask(node.NodeSecret)
+	data["MaskedSecret"] = MaskSecretCompact(node.NodeSecret)
 	data["SafeLastError"] = ""
 	if node.LastError != nil {
 		data["SafeLastError"] = SafeOperationalError(*node.LastError)
 	}
 	data["Assignments"] = assignmentViews
 	data["Events"] = eventItems
-	h.render(w, "node_detail.html", data)
+	h.render(w, r, "node_detail.html", data)
 }
 
 func (h *Handler) EditNodePage(w http.ResponseWriter, r *http.Request) {
 	node, err := h.nodeRepo.Get(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	data := h.pageData(r.URL, "Edit Node", "nodes")
+	locale := ResolveLocale(r)
+	data := h.pageData(r, "page.node_edit", "nodes")
 	data["Breadcrumbs"] = []breadcrumb{
-		{Label: "Nodes", URL: "/nodes"},
+		{Label: Translate(locale, "nav.nodes"), URL: "/nodes"},
 		{Label: node.Name, URL: "/nodes/" + node.ID},
-		{Label: "Edit", URL: ""},
+		{Label: Translate(locale, "page.node_edit"), URL: ""},
 	}
 	data["Node"] = node
-	h.render(w, "node_edit.html", data)
+	h.render(w, r, "node_edit.html", data)
 }
 
 func (h *Handler) ValidateNodeStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.nodeManager.ValidateNodeStatus(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", "Validation failed: ", err)
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", flashText(ResolveLocale(r), "validation_failed")+": ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", formatNodeStatusFlash(status), "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", formatNodeStatusFlash(ResolveLocale(r), status), "success")
 }
 
 func (h *Handler) UpdateNode(w http.ResponseWriter, r *http.Request) {
@@ -256,14 +260,14 @@ func (h *Handler) UpdateNode(w http.ResponseWriter, r *http.Request) {
 		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id")+"/edit", "", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node updated", "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "node_updated"), "success")
 }
 
 func (h *Handler) DeleteNode(w http.ResponseWriter, r *http.Request) {
-	if h.handleErr(w, h.nodeManager.DeleteNode(r.Context(), chi.URLParam(r, "id"))) {
+	if h.handleErr(w, r, h.nodeManager.DeleteNode(r.Context(), chi.URLParam(r, "id"))) {
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes", "Node deleted", "success")
+	h.redirectWithFlash(w, r, "/nodes", flashText(ResolveLocale(r), "node_deleted"), "success")
 }
 
 func (h *Handler) NodeHealth(w http.ResponseWriter, r *http.Request) {
@@ -274,13 +278,13 @@ func (h *Handler) NodeHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := h.nodeManager.CheckNodeHealth(r.Context(), chi.URLParam(r, "id")); err != nil {
 		if node.SetupState == nodes.SetupStatePlanned {
-			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node is not reachable yet", "error")
+			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "node_not_reachable_yet"), "error")
 			return
 		}
-		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Health failed: ", err)
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "health_failed")+": ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Health OK", "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "health_ok"), "success")
 }
 
 func (h *Handler) NodeStatus(w http.ResponseWriter, r *http.Request) {
@@ -292,13 +296,13 @@ func (h *Handler) NodeStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.nodeManager.FetchNodeStatus(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		if node.SetupState == nodes.SetupStatePlanned {
-			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node is not reachable yet", "error")
+			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "node_not_reachable_yet"), "error")
 			return
 		}
-		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Status failed: ", err)
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "status_failed")+": ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), formatNodeStatusFlash(status), "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), formatNodeStatusFlash(ResolveLocale(r), status), "success")
 }
 
 func (h *Handler) SyncNode(w http.ResponseWriter, r *http.Request) {
@@ -310,26 +314,27 @@ func (h *Handler) SyncNode(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.nodeManager.SyncNode(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		if node.SetupState == nodes.SetupStatePlanned {
-			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Node is not reachable yet", "error")
+			h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "node_not_reachable_yet"), "error")
 			return
 		}
-		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), "Sync failed: ", err)
+		h.redirectWithErrorFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "sync_failed")+": ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), formatSyncFlash(resp), "success")
+	h.redirectWithFlash(w, r, "/nodes/"+chi.URLParam(r, "id"), formatSyncFlash(ResolveLocale(r), resp), "success")
 }
 
 func (h *Handler) SyncAllNodes(w http.ResponseWriter, r *http.Request) {
 	if err := h.nodeManager.SyncAllNodes(r.Context()); err != nil {
-		h.redirectWithErrorFlash(w, r, "/nodes", "Sync all failed: ", err)
+		h.redirectWithErrorFlash(w, r, "/nodes", flashText(ResolveLocale(r), "sync_all_failed")+": ", err)
 		return
 	}
-	h.redirectWithFlash(w, r, "/nodes", "Sync all OK", "success")
+	h.redirectWithFlash(w, r, "/nodes", flashText(ResolveLocale(r), "sync_all_ok"), "success")
 }
 
 func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
+	locale := ResolveLocale(r)
 	list, err := h.userRepo.List(r.Context())
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
 	nodesList, _ := h.nodeRepo.List(r.Context())
@@ -342,7 +347,7 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]userListItem, 0, len(list))
 	for _, user := range list {
-		statusTone, statusLabel := userStatus(user)
+		statusTone, statusLabel := userStatus(locale, user)
 		item := userListItem{
 			User:              user,
 			StatusTone:        statusTone,
@@ -356,20 +361,20 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 	}
 	sortUserViews(items, sortMode)
 
-	data := h.pageData(r.URL, "Users", "users")
-	data["Breadcrumbs"] = []breadcrumb{{Label: "Users", URL: "/users"}}
+	data := h.pageData(r, "page.users", "users")
+	data["Breadcrumbs"] = []breadcrumb{{Label: Translate(locale, "nav.users"), URL: "/users"}}
 	data["UserItems"] = items
 	data["Nodes"] = nodesList
 	data["Filter"] = filter
 	data["Search"] = search
 	data["Sort"] = sortMode
 	data["UserStats"], _ = h.userRepo.DashboardStats(r.Context(), time.Now().Add(72*time.Hour))
-	h.render(w, "users.html", data)
+	h.render(w, r, "users.html", data)
 }
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	nodesList, err := h.nodeRepo.List(r.Context())
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
 	protocols := map[string]string{}
@@ -378,30 +383,31 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	in, inputErr := h.userInputFromForm(r)
 	if inputErr != nil {
-		h.redirectWithFlash(w, r, "/users", "Invalid expiration date and time", "error")
+		h.redirectWithFlash(w, r, "/users", flashText(ResolveLocale(r), "invalid_expiration"), "error")
 		return
 	}
 	user, err := h.userSvc.CreateUser(r.Context(), in, protocols)
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	syncErrors := h.syncNodesAfterChangeForUI(r.Context(), in.NodeIDs)
+	syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), in.NodeIDs)
 	if len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+user.ID, "User saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+		h.redirectWithFlash(w, r, "/users/"+user.ID, flashWithList(ResolveLocale(r), "user_saved_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+user.ID, "User saved and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+user.ID, flashText(ResolveLocale(r), "user_saved_synced"), "success")
 }
 
 func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 	user, err := h.userRepo.Get(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
 	access, _ := h.userRepo.AccessDetailForUser(r.Context(), user.ID)
 	nodesList, _ := h.nodeRepo.List(r.Context())
 	base := h.cfg.SubscriptionPublicBaseURL + "/sub/" + user.SubscriptionToken
-	statusTone, statusLabel := userStatus(user)
+	locale := ResolveLocale(r)
+	statusTone, statusLabel := userStatus(locale, user)
 	accessViews := make([]assignmentView, 0, len(access))
 	for _, item := range access {
 		accessViews = append(accessViews, assignmentView{
@@ -417,120 +423,120 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 			MaskedProtocolPassword: Mask(item.ProtocolPassword),
 		})
 	}
-	data := h.pageData(r.URL, "User Detail", "users")
+	data := h.pageData(r, "page.user_detail", "users")
 	data["Breadcrumbs"] = []breadcrumb{
-		{Label: "Users", URL: "/users"},
+		{Label: Translate(locale, "nav.users"), URL: "/users"},
 		{Label: user.Username, URL: ""},
 	}
 	data["User"] = user
 	data["Access"] = accessViews
 	data["Nodes"] = nodesList
-	data["SubscriptionExpiryText"] = subscriptionExpiryText(user.ExpiresAt, h.appLocation)
+	data["SubscriptionExpiryText"] = subscriptionExpiryText(locale, user.ExpiresAt, h.appLocation)
 	data["UserStatusTone"] = statusTone
 	data["UserStatusLabel"] = statusLabel
 	data["MaskedToken"] = Mask(user.SubscriptionToken)
 	data["AssignedNodeCount"] = len(access)
 	hiddifyLinks := []subscriptionLink{
-		{Label: "Hiddify Subscription", URL: base + "?format=hiddify", QR: true},
-		{Label: "Hiddify JSON Experimental", URL: base + "?format=hiddify-json"},
+		{Label: subscriptionText(locale, "hiddify_subscription"), URL: base + "?format=hiddify", QR: true},
+		{Label: subscriptionText(locale, "hiddify_json"), URL: base + "?format=hiddify-json"},
 	}
 	if hasDetailedProtocolAccess(access, "mieru") {
-		hiddifyLinks = append(hiddifyLinks, subscriptionLink{Label: "Hiddify Mieru Only", URL: base + "?format=mierus"})
+		hiddifyLinks = append(hiddifyLinks, subscriptionLink{Label: subscriptionText(locale, "hiddify_mieru_only"), URL: base + "?format=mierus"})
 	}
 	if hasDetailedProtocolAccess(access, "naive") {
-		hiddifyLinks = append(hiddifyLinks, subscriptionLink{Label: "Hiddify Naive Only", URL: base + "?format=naive"})
+		hiddifyLinks = append(hiddifyLinks, subscriptionLink{Label: subscriptionText(locale, "hiddify_naive_only"), URL: base + "?format=naive"})
 	}
 	data["SubscriptionGroups"] = []subscriptionLinkGroup{
 		{
-			Title: "Karing",
+			Title: subscriptionText(locale, "group_karing"),
 			Links: []subscriptionLink{
-				{Label: "Karing Subscription", URL: base, QR: true},
-				{Label: "Karing JSON", URL: base + "?format=json"},
+				{Label: subscriptionText(locale, "karing_subscription"), URL: base, QR: true},
+				{Label: subscriptionText(locale, "karing_json"), URL: base + "?format=json"},
 			},
 		},
 		{
-			Title: "Hiddify",
+			Title: subscriptionText(locale, "group_hiddify"),
 			Links: hiddifyLinks,
 		},
 		{
-			Title: "Debug",
+			Title: subscriptionText(locale, "group_debug"),
 			Links: []subscriptionLink{
-				{Label: "Raw Links", URL: base + "?format=raw"},
+				{Label: subscriptionText(locale, "raw_links"), URL: base + "?format=raw"},
 			},
 		},
 	}
-	h.render(w, "user_detail.html", data)
+	h.render(w, r, "user_detail.html", data)
 }
 
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
 	in, inputErr := h.userInputFromForm(r)
 	if inputErr != nil {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Invalid expiration date and time", "error")
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "invalid_expiration"), "error")
 		return
 	}
 	_, err = h.userRepo.Update(r.Context(), chi.URLParam(r, "id"), in)
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "user_saved_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User saved and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "user_saved_synced"), "success")
 }
 
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	if h.handleErr(w, h.userRepo.Delete(r.Context(), chi.URLParam(r, "id"))) {
+	if h.handleErr(w, r, h.userRepo.Delete(r.Context(), chi.URLParam(r, "id"))) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users", "User deleted, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users", flashWithList(ResolveLocale(r), "user_deleted_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users", "User deleted and synced", "success")
+	h.redirectWithFlash(w, r, "/users", flashText(ResolveLocale(r), "user_deleted_synced"), "success")
 }
 
 func (h *Handler) EnableUser(w http.ResponseWriter, r *http.Request) {
-	if err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), true); h.handleErr(w, err) {
+	if err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), true); h.handleErr(w, r, err) {
 		return
 	}
 	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User enabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "user_enabled_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User enabled and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "user_enabled_synced"), "success")
 }
 
 func (h *Handler) DisableUser(w http.ResponseWriter, r *http.Request) {
-	if err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), false); h.handleErr(w, err) {
+	if err := h.userRepo.SetEnabled(r.Context(), chi.URLParam(r, "id"), false); h.handleErr(w, r, err) {
 		return
 	}
 	nodeIDs, err := h.userNodeIDs(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), nodeIDs); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User disabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), nodeIDs); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "user_disabled_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "User disabled and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "user_disabled_synced"), "success")
 }
 
 func (h *Handler) AssignNode(w http.ResponseWriter, r *http.Request) {
 	node, err := h.nodeRepo.Get(r.Context(), r.FormValue("node_id"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
 	username := r.FormValue("protocol_username")
@@ -542,77 +548,77 @@ func (h *Handler) AssignNode(w http.ResponseWriter, r *http.Request) {
 		password, _ = security.Token("p", 18)
 	}
 	err = h.userRepo.AssignNode(r.Context(), chi.URLParam(r, "id"), node.ID, node.ProtocolType, username, password)
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{node.ID}); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Assignment saved, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), []string{node.ID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "assignment_saved_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Assignment saved and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "assignment_saved_synced"), "success")
 }
 
 func (h *Handler) UnassignNode(w http.ResponseWriter, r *http.Request) {
 	nodeID := r.FormValue("node_id")
-	if err := h.userRepo.UnassignNode(r.Context(), chi.URLParam(r, "id"), nodeID); h.handleErr(w, err) {
+	if err := h.userRepo.UnassignNode(r.Context(), chi.URLParam(r, "id"), nodeID); h.handleErr(w, r, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{nodeID}); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Unassigned, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), []string{nodeID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "unassigned_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node unassigned and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "node_unassigned_synced"), "success")
 }
 
 func (h *Handler) EnableUserNodeAccess(w http.ResponseWriter, r *http.Request) {
 	access, err := h.userRepo.AccessByID(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "accessID"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, true); h.handleErr(w, err) {
+	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, true); h.handleErr(w, r, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access enabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), []string{access.NodeID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "node_access_enabled_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access enabled and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "node_access_enabled_synced"), "success")
 }
 
 func (h *Handler) DisableUserNodeAccess(w http.ResponseWriter, r *http.Request) {
 	access, err := h.userRepo.AccessByID(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "accessID"))
-	if h.handleErr(w, err) {
+	if h.handleErr(w, r, err) {
 		return
 	}
-	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, false); h.handleErr(w, err) {
+	if err := h.userRepo.SetAccessEnabled(r.Context(), chi.URLParam(r, "id"), access.ID, false); h.handleErr(w, r, err) {
 		return
 	}
-	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), []string{access.NodeID}); len(syncErrors) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access disabled, but sync failed for nodes: "+strings.Join(syncErrors, "; "), "error")
+	if syncErrors := h.syncNodesAfterChangeForUI(r.Context(), ResolveLocale(r), []string{access.NodeID}); len(syncErrors) > 0 {
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "node_access_disabled_sync_failed", syncErrors), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Node access disabled and synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "node_access_disabled_synced"), "success")
 }
 
 func (h *Handler) SyncUserNodes(w http.ResponseWriter, r *http.Request) {
-	errs, err := h.syncUserAssignmentsForUI(r.Context(), chi.URLParam(r, "id"))
-	if h.handleErr(w, err) {
+	errs, err := h.syncUserAssignmentsForUI(r.Context(), ResolveLocale(r), chi.URLParam(r, "id"))
+	if h.handleErr(w, r, err) {
 		return
 	}
 	if len(errs) > 0 {
-		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Sync failed for nodes: "+strings.Join(errs, "; "), "error")
+		h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashWithList(ResolveLocale(r), "sync_failed_for_nodes", errs), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), "Affected nodes synced", "success")
+	h.redirectWithFlash(w, r, "/users/"+chi.URLParam(r, "id"), flashText(ResolveLocale(r), "affected_nodes_synced"), "success")
 }
 
 func (h *Handler) ReconcileExpiredUsers(w http.ResponseWriter, r *http.Request) {
 	result, err := h.expiryReconciler.RunOnce(r.Context())
 	if err != nil {
-		h.redirectWithFlash(w, r, "/users", "Expired users reconcile finished with errors: "+formatExpiryReconcileResult(result), "error")
+		h.redirectWithFlash(w, r, "/users", flashText(ResolveLocale(r), "expired_reconcile_failed")+": "+formatExpiryReconcileResult(ResolveLocale(r), result), "error")
 		return
 	}
-	h.redirectWithFlash(w, r, "/users", "Expired users reconcile OK: "+formatExpiryReconcileResult(result), "success")
+	h.redirectWithFlash(w, r, "/users", flashText(ResolveLocale(r), "expired_reconcile_ok")+": "+formatExpiryReconcileResult(ResolveLocale(r), result), "success")
 }
 
 func (h *Handler) Subscription(w http.ResponseWriter, r *http.Request) {
@@ -795,18 +801,22 @@ func subscriptionUserinfo(user users.User) string {
 	return fmt.Sprintf("upload=0; download=0; total=%d; expire=%d", total, expire)
 }
 
-func subscriptionExpiryText(expiresAt *time.Time, loc *time.Location) string {
+func subscriptionExpiryText(locale Locale, expiresAt *time.Time, loc *time.Location) string {
+	return subscriptionExpiryTextAt(locale, expiresAt, loc, time.Now())
+}
+
+func subscriptionExpiryTextAt(locale Locale, expiresAt *time.Time, loc *time.Location, now time.Time) string {
 	if expiresAt == nil {
-		return "Subscription: unlimited"
+		return Translate(locale, "subscription.unlimited")
 	}
-	formatted := formatDateTimeValue(expiresAt, loc)
-	if expiresAt.Before(time.Now()) {
-		return "Subscription: expired at " + formatted
+	formatted := FormatDateTimeWithZoneForLocale(locale, expiresAt, loc)
+	if expiresAt.Before(now) {
+		return Translate(locale, "subscription.expired_at") + " " + formatted
 	}
-	if expiresAt.Before(time.Now().Add(72 * time.Hour)) {
-		return "Expires at: " + formatted + " (expires soon)"
+	if expiresAt.Before(now.Add(72 * time.Hour)) {
+		return Translate(locale, "subscription.expires_at") + " " + formatted + " (" + Translate(locale, "status.expires_soon") + ")"
 	}
-	return "Expires at: " + formatted
+	return Translate(locale, "subscription.expires_at") + " " + formatted
 }
 
 func (h *Handler) APIListNodes(w http.ResponseWriter, r *http.Request) {
@@ -895,19 +905,19 @@ func (h *Handler) APISyncAllNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (h *Handler) render(w http.ResponseWriter, name string, data any) {
+func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, data any) {
 	if err := h.tmpl.ExecuteTemplate(w, name, data); err != nil {
 		h.logger.Error("render template", "template", name, "error", SafeOperationalError(err.Error()))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, Translate(ResolveLocale(r), "flash.internal_server_error"), http.StatusInternalServerError)
 	}
 }
 
-func (h *Handler) handleErr(w http.ResponseWriter, err error) bool {
+func (h *Handler) handleErr(w http.ResponseWriter, r *http.Request, err error) bool {
 	if err == nil {
 		return false
 	}
 	h.logger.Error("request failed", "error", SafeOperationalError(err.Error()))
-	http.Error(w, "Internal server error", http.StatusInternalServerError)
+	http.Error(w, Translate(ResolveLocale(r), "flash.internal_server_error"), http.StatusInternalServerError)
 	return true
 }
 
@@ -1049,14 +1059,27 @@ func loadAppLocation(name string) *time.Location {
 	return loc
 }
 
-func formatDateTimeValue(t *time.Time, loc *time.Location) string {
-	if t == nil {
-		return "unlimited"
+func (h *Handler) SetLanguage(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
 	}
-	if loc == nil {
-		loc = time.UTC
+	rawLanguage := strings.TrimSpace(strings.ToLower(r.FormValue("language")))
+	locale := LocaleRU
+	if rawLanguage == string(LocaleEN) {
+		locale = LocaleEN
 	}
-	return t.In(loc).Format("2006-01-02 15:04 MST")
+	returnTo := h.safeReturnTo(r.FormValue("return_to"))
+	http.SetCookie(w, &http.Cookie{
+		Name:     languageCookieName,
+		Value:    string(locale),
+		Path:     "/",
+		MaxAge:   31536000,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   strings.HasPrefix(strings.ToLower(h.cfg.PanelPublicBaseURL), "https://"),
+	})
+	http.Redirect(w, r, returnTo, http.StatusFound)
 }
 
 func (h *Handler) redirectWithFlash(w http.ResponseWriter, r *http.Request, path, message, level string) {
@@ -1066,10 +1089,37 @@ func (h *Handler) redirectWithFlash(w http.ResponseWriter, r *http.Request, path
 	http.Redirect(w, r, path+"?"+values.Encode(), http.StatusFound)
 }
 
-func safeUIErrorText(value string) string {
+func (h *Handler) safeReturnTo(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, "\\\r\n\x00") {
+		return "/"
+	}
+
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil {
+		return "/"
+	}
+
+	if parsed.IsAbs() || parsed.Host != "" || parsed.Opaque != "" {
+		return "/"
+	}
+
+	decodedPath, err := url.PathUnescape(parsed.EscapedPath())
+	if err != nil {
+		return "/"
+	}
+
+	if !strings.HasPrefix(decodedPath, "/") || strings.HasPrefix(decodedPath, "//") || strings.Contains(decodedPath, "\\") {
+		return "/"
+	}
+
+	return value
+}
+
+func safeUIErrorText(locale Locale, value string) string {
 	sanitized := SafeOperationalError(value)
 	if sanitized == "" {
-		return "Operation failed. Check backend logs."
+		return Translate(locale, "flash.operation_failed")
 	}
 	sanitized = strings.Map(func(r rune) rune {
 		if r == '\r' || r == '\n' || r == '\t' {
@@ -1082,21 +1132,22 @@ func safeUIErrorText(value string) string {
 	}, sanitized)
 	sanitized = strings.Join(strings.Fields(sanitized), " ")
 	sanitized = TruncateText(sanitized, 300)
-	if strings.TrimSpace(sanitized) == "" || sanitized == "***" {
-		return "Operation failed. Check backend logs."
+	if strings.TrimSpace(sanitized) == "" || sanitized == "***" || sanitized == "[redacted operational error]" {
+		return Translate(locale, "flash.operation_failed")
 	}
 	return sanitized
 }
 
-func SafeUIError(err error) string {
+func SafeUIError(locale Locale, err error) string {
 	if err == nil {
-		return "Operation failed. Check backend logs."
+		return Translate(locale, "flash.operation_failed")
 	}
-	return safeUIErrorText(err.Error())
+	return safeUIErrorText(locale, err.Error())
 }
 
 func (h *Handler) redirectWithErrorFlash(w http.ResponseWriter, r *http.Request, path, prefix string, err error) {
-	safeErr := SafeUIError(err)
+	locale := ResolveLocale(r)
+	safeErr := SafeUIError(locale, err)
 	h.logger.Error("ui action failed", "path", r.URL.Path, "error", safeErr)
 	message := safeErr
 	if prefix != "" {
@@ -1119,12 +1170,12 @@ func (h *Handler) syncUserAssignments(ctx context.Context, userID string) ([]str
 	return errs, nil
 }
 
-func (h *Handler) syncUserAssignmentsForUI(ctx context.Context, userID string) ([]string, error) {
+func (h *Handler) syncUserAssignmentsForUI(ctx context.Context, locale Locale, userID string) ([]string, error) {
 	errs, err := h.syncUserAssignments(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	return sanitizeNodeSyncErrors(errs), nil
+	return sanitizeNodeSyncErrors(locale, errs), nil
 }
 
 func (h *Handler) syncNodesAfterChange(ctx context.Context, nodeIDs []string) []string {
@@ -1150,19 +1201,19 @@ func (h *Handler) syncNodesAfterChange(ctx context.Context, nodeIDs []string) []
 	return errs
 }
 
-func (h *Handler) syncNodesAfterChangeForUI(ctx context.Context, nodeIDs []string) []string {
-	return sanitizeNodeSyncErrors(h.syncNodesAfterChange(ctx, nodeIDs))
+func (h *Handler) syncNodesAfterChangeForUI(ctx context.Context, locale Locale, nodeIDs []string) []string {
+	return sanitizeNodeSyncErrors(locale, h.syncNodesAfterChange(ctx, nodeIDs))
 }
 
-func sanitizeNodeSyncErrors(errs []string) []string {
+func sanitizeNodeSyncErrors(locale Locale, errs []string) []string {
 	safe := make([]string, 0, len(errs))
 	for _, errText := range errs {
 		nodeID, detail, found := strings.Cut(errText, ": ")
 		if !found {
-			safe = append(safe, safeUIErrorText(errText))
+			safe = append(safe, safeUIErrorText(locale, errText))
 			continue
 		}
-		safe = append(safe, nodeID+": "+safeUIErrorText(detail))
+		safe = append(safe, nodeID+": "+safeUIErrorText(locale, detail))
 	}
 	return safe
 }
@@ -1246,25 +1297,145 @@ func newNodeResponse(node nodes.Node, exposeRawSecret bool) nodeResponse {
 	}
 }
 
-func formatNodeStatusFlash(status nodes.AgentStatusResponse) string {
-	return "Status OK: current_version=" + strconv.FormatInt(status.CurrentVersion, 10) +
-		", applied_version=" + strconv.FormatInt(status.AppliedVersion, 10) +
-		", users_cached=" + strconv.Itoa(status.UsersCached)
+func localeText(locale Locale, ru, en string) string {
+	if NormalizeLocale(string(locale)) == LocaleEN {
+		return en
+	}
+	return ru
 }
 
-func formatSyncFlash(resp nodes.AgentResponse) string {
-	return "Sync OK: applied_version=" + strconv.FormatInt(resp.AppliedVersion, 10)
+func flashText(locale Locale, key string) string {
+	switch key {
+	case "validation_failed":
+		return localeText(locale, "Ошибка проверки", "Validation failed")
+	case "node_adopted_connected":
+		return localeText(locale, "Существующая нода подключена и синхронизирована", "Existing node adopted and connected")
+	case "node_updated":
+		return localeText(locale, "Нода обновлена", "Node updated")
+	case "node_deleted":
+		return localeText(locale, "Нода удалена", "Node deleted")
+	case "node_not_reachable_yet":
+		return localeText(locale, "Нода пока недоступна", "Node is not reachable yet")
+	case "health_failed":
+		return localeText(locale, "Проверка не удалась", "Health failed")
+	case "health_ok":
+		return localeText(locale, "Проверка прошла успешно", "Health OK")
+	case "status_failed":
+		return localeText(locale, "Получение статуса не удалось", "Status failed")
+	case "sync_failed":
+		return localeText(locale, "Синхронизация не удалась", "Sync failed")
+	case "sync_all_failed":
+		return localeText(locale, "Синхронизация всех нод не удалась", "Sync all failed")
+	case "sync_all_ok":
+		return localeText(locale, "Все ноды синхронизированы", "Sync all OK")
+	case "invalid_expiration":
+		return localeText(locale, "Некорректная дата и время окончания", "Invalid expiration date and time")
+	case "user_saved_sync_failed":
+		return localeText(locale, "Пользователь сохранён, но синхронизация нод завершилась ошибкой", "User saved, but node sync failed")
+	case "user_saved_synced":
+		return localeText(locale, "Пользователь сохранён и синхронизирован", "User saved and synced")
+	case "user_deleted_sync_failed":
+		return localeText(locale, "Пользователь удалён, но синхронизация нод завершилась ошибкой", "User deleted, but node sync failed")
+	case "user_deleted_synced":
+		return localeText(locale, "Пользователь удалён и синхронизирован", "User deleted and synced")
+	case "user_enabled_sync_failed":
+		return localeText(locale, "Пользователь включён, но синхронизация нод завершилась ошибкой", "User enabled, but node sync failed")
+	case "user_enabled_synced":
+		return localeText(locale, "Пользователь включён и синхронизирован", "User enabled and synced")
+	case "user_disabled_sync_failed":
+		return localeText(locale, "Пользователь отключён, но синхронизация нод завершилась ошибкой", "User disabled, but node sync failed")
+	case "user_disabled_synced":
+		return localeText(locale, "Пользователь отключён и синхронизирован", "User disabled and synced")
+	case "assignment_saved_sync_failed":
+		return localeText(locale, "Назначение сохранено, но синхронизация нод завершилась ошибкой", "Assignment saved, but node sync failed")
+	case "assignment_saved_synced":
+		return localeText(locale, "Назначение сохранено и синхронизировано", "Assignment saved and synced")
+	case "unassigned_sync_failed":
+		return localeText(locale, "Назначение удалено, но синхронизация нод завершилась ошибкой", "Unassigned, but node sync failed")
+	case "node_unassigned_synced":
+		return localeText(locale, "Нода отвязана и синхронизирована", "Node unassigned and synced")
+	case "node_access_enabled_sync_failed":
+		return localeText(locale, "Доступ к ноде включён, но синхронизация завершилась ошибкой", "Node access enabled, but node sync failed")
+	case "node_access_enabled_synced":
+		return localeText(locale, "Доступ к ноде включён и синхронизирован", "Node access enabled and synced")
+	case "node_access_disabled_sync_failed":
+		return localeText(locale, "Доступ к ноде отключён, но синхронизация завершилась ошибкой", "Node access disabled, but node sync failed")
+	case "node_access_disabled_synced":
+		return localeText(locale, "Доступ к ноде отключён и синхронизирован", "Node access disabled and synced")
+	case "sync_failed_for_nodes":
+		return localeText(locale, "Синхронизация нод завершилась ошибкой", "Sync failed for nodes")
+	case "affected_nodes_synced":
+		return localeText(locale, "Затронутые ноды синхронизированы", "Affected nodes synced")
+	case "expired_reconcile_failed":
+		return localeText(locale, "Сверка истёкших подписок завершилась с ошибками", "Expired users reconcile finished with errors")
+	case "expired_reconcile_ok":
+		return localeText(locale, "Сверка истёкших подписок завершена", "Expired users reconcile OK")
+	case "subscription_unlimited":
+		return localeText(locale, "Подписка: без ограничений", "Subscription: unlimited")
+	case "subscription_expired_at":
+		return localeText(locale, "Подписка истекла:", "Subscription: expired at")
+	case "subscription_expires_at":
+		return localeText(locale, "Срок действия до:", "Expires at:")
+	default:
+		return key
+	}
 }
 
-func formatExpiryReconcileResult(result users.ExpiryReconcileResult) string {
+func flashWithList(locale Locale, key string, items []string) string {
+	if len(items) == 0 {
+		return flashText(locale, key)
+	}
+	return flashText(locale, key) + ": " + strings.Join(items, "; ")
+}
+
+func subscriptionText(locale Locale, key string) string {
+	switch key {
+	case "group_karing":
+		return "Karing"
+	case "group_hiddify":
+		return "Hiddify"
+	case "group_debug":
+		return localeText(locale, "Отладка", "Debug")
+	case "karing_subscription":
+		return localeText(locale, "Подписка Karing", "Karing Subscription")
+	case "karing_json":
+		return "Karing JSON"
+	case "hiddify_subscription":
+		return localeText(locale, "Подписка Hiddify", "Hiddify Subscription")
+	case "hiddify_json":
+		return localeText(locale, "Hiddify JSON (экспериментально)", "Hiddify JSON Experimental")
+	case "hiddify_mieru_only":
+		return localeText(locale, "Только Hiddify Mieru", "Hiddify Mieru Only")
+	case "hiddify_naive_only":
+		return localeText(locale, "Только Hiddify Naive", "Hiddify Naive Only")
+	case "raw_links":
+		return localeText(locale, "Сырые ссылки", "Raw Links")
+	default:
+		return key
+	}
+}
+
+func formatNodeStatusFlash(locale Locale, status nodes.AgentStatusResponse) string {
+	return Translate(locale, "flash.status_ok") +
+		": " + Translate(locale, "status.current_version") + "=" + strconv.FormatInt(status.CurrentVersion, 10) +
+		", " + Translate(locale, "status.applied_version") + "=" + strconv.FormatInt(status.AppliedVersion, 10) +
+		", " + Translate(locale, "status.users_cached") + "=" + strconv.Itoa(status.UsersCached)
+}
+
+func formatSyncFlash(locale Locale, resp nodes.AgentResponse) string {
+	return Translate(locale, "flash.sync_ok") +
+		": " + Translate(locale, "status.applied_version") + "=" + strconv.FormatInt(resp.AppliedVersion, 10)
+}
+
+func formatExpiryReconcileResult(locale Locale, result users.ExpiryReconcileResult) string {
 	parts := []string{
-		"users_found=" + strconv.Itoa(result.UsersFound),
-		"nodes_affected=" + strconv.Itoa(result.NodesAffected),
-		"sync_success_count=" + strconv.Itoa(result.SyncSuccessCount),
-		"users_synced=" + strconv.Itoa(result.UsersSynced),
+		Translate(locale, "reconcile.users_found") + ": " + strconv.Itoa(result.UsersFound),
+		Translate(locale, "reconcile.nodes_affected") + ": " + strconv.Itoa(result.NodesAffected),
+		Translate(locale, "reconcile.successful_syncs") + ": " + strconv.Itoa(result.SyncSuccessCount),
+		Translate(locale, "reconcile.users_processed") + ": " + strconv.Itoa(result.UsersSynced),
 	}
 	if len(result.Errors) > 0 {
-		parts = append(parts, "errors="+strings.Join(result.Errors, "; "))
+		parts = append(parts, Translate(locale, "reconcile.errors")+": "+strings.Join(sanitizeNodeSyncErrors(locale, result.Errors), "; "))
 	}
 	return strings.Join(parts, ", ")
 }

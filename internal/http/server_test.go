@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"vetka-backend-panel/internal/http/handlers"
 )
 
 type stubPinger struct {
@@ -31,8 +33,8 @@ func TestFormatDateTimeInput(t *testing.T) {
 func TestFormatDateTime(t *testing.T) {
 	loc := loadAppLocation("Europe/Moscow")
 	value := time.Date(2026, 7, 11, 11, 0, 0, 0, time.UTC)
-	got := formatDateTime(&value, loc)
-	if got != "2026-07-11 14:00 MSK" {
+	got := formatDateTime(handlers.LocaleRU, &value, loc)
+	if got != "11.07.2026 14:00" {
 		t.Fatalf("unexpected formatted datetime: %s", got)
 	}
 }
