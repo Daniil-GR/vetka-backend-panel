@@ -9,6 +9,8 @@ REPO_URL="${REPO_URL:-https://github.com/Daniil-GR/vetka-backend-panel.git}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/scripts/backup-common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/scripts/compose-runtime-common.sh"
 PANEL_DOMAIN=""
 SUBSCRIPTION_DOMAIN=""
 ADMIN_USERNAME="admin"
@@ -43,6 +45,26 @@ random_secret() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+ensure_docker_service() {
+  if ! command_exists systemctl; then
+    echo "systemctl is required on this installer target." >&2
+    exit 1
+  fi
+  systemctl enable --now docker
+  if ! systemctl is-enabled docker >/dev/null 2>&1; then
+    echo "Docker service is not enabled in systemd autostart." >&2
+    exit 1
+  fi
+  if ! systemctl is-active docker >/dev/null 2>&1; then
+    echo "Docker service is not running." >&2
+    exit 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "Docker daemon is not available." >&2
+    exit 1
+  fi
 }
 
 write_override_file() {
@@ -225,7 +247,7 @@ BACKUP_BEFORE_UPDATE="${BACKUP_BEFORE_UPDATE:-true}"
 
 apt-get update
 apt-get install -y ca-certificates curl git jq openssl docker.io docker-compose-v2 ufw
-systemctl enable --now docker
+ensure_docker_service
 
 mkdir -p "$APP_DIR"
 chmod 755 "$APP_DIR"
@@ -284,6 +306,10 @@ if [[ "$ENABLE_HTTPS" == "yes" ]]; then
 else
   (cd "$APP_DIR" && docker compose up -d --build)
 fi
+if ! verify_compose_runtime; then
+  echo "ERROR: Compose runtime verification failed." >&2
+  exit 1
+fi
 
 if [[ "$CONFIGURE_UFW" == "yes" ]] && command_exists ufw; then
   ufw allow 22/tcp
@@ -295,8 +321,10 @@ if [[ "$CONFIGURE_UFW" == "yes" ]] && command_exists ufw; then
   fi
 fi
 
-(cd "$APP_DIR" && docker compose ps)
-(cd "$APP_DIR" && docker compose exec -T postgres pg_isready -U vetka -d vetka_backend)
+show_compose_status
+if ! verify_postgres_ready; then
+  exit 1
+fi
 curl -fsSL "${PANEL_PUBLIC_BASE_URL%/}/login" >/dev/null 2>&1 || true
 
 if [[ "$BACKUP_ENABLED" == "true" ]]; then

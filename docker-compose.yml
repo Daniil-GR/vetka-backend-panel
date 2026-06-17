@@ -1,5 +1,6 @@
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-vetka}
@@ -14,6 +15,7 @@ services:
       retries: 12
 
   backend:
+    restart: unless-stopped
     build: .
     depends_on:
       postgres:
@@ -37,6 +39,7 @@ services:
       NODE_AGENT_DEFAULT_PORT: ${NODE_AGENT_DEFAULT_PORT:-2222}
 
   caddy:
+    restart: unless-stopped
     image: caddy:2
     profiles: ["https"]
     environment:

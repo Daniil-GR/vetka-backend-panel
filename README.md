@@ -37,6 +37,8 @@ Or run both services through Compose:
 docker compose up --build
 ```
 
+The installer enables Docker in systemd autostart, and the Compose stack declares `restart: unless-stopped` for `postgres`, `backend`, and `caddy`. After a normal server reboot the stack should come back automatically. If an administrator intentionally stops a container, `unless-stopped` preserves that decision instead of forcing the container back up.
+
 The default `docker-compose.yml` keeps both PostgreSQL and the backend on the internal Docker network only. Login uses `ADMIN_USERNAME` and `ADMIN_PASSWORD`. API endpoints use:
 
 ```http
@@ -277,6 +279,19 @@ The installer keeps PostgreSQL private, can configure UFW, and supports either:
 - Direct HTTP mode: public `8080` only when explicitly enabled
 
 `update.sh` preserves the chosen install mode. PostgreSQL is never published publicly by the default compose stack.
+
+Docker autostart and restart policy checks:
+
+```bash
+systemctl is-enabled docker
+systemctl is-active docker
+
+docker compose ps
+
+docker inspect \
+  --format '{{.Name}} -> {{.HostConfig.RestartPolicy.Name}}' \
+  $(docker compose --profile https ps -aq)
+```
 
 Important environment variables:
 
