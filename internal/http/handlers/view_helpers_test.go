@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"vetka-backend-panel/internal/nodes"
+	"vetka-backend-panel/internal/telemetry"
 	"vetka-backend-panel/internal/users"
 )
 
@@ -186,6 +187,25 @@ func TestSafeOperationalErrorDoesNotEchoUnsanitizedInvalidSecretPayload(t *testi
 	}
 }
 
+func TestFormatBytesIECBoundaries(t *testing.T) {
+	tests := []struct {
+		value int64
+		want  string
+	}{
+		{0, "0 B"},
+		{1023, "1023 B"},
+		{1024, "1.0 KiB"},
+		{1536, "1.5 KiB"},
+		{1048576, "1.0 MiB"},
+		{1073741824, "1.0 GiB"},
+	}
+	for _, tc := range tests {
+		if got := FormatBytesIEC(tc.value); got != tc.want {
+			t.Fatalf("FormatBytesIEC(%d) = %q, want %q", tc.value, got, tc.want)
+		}
+	}
+}
+
 func TestHasDetailedProtocolAccessUsesNodeProtocolType(t *testing.T) {
 	access := []users.UserNodeAccessDetail{
 		{
@@ -233,6 +253,116 @@ func TestMakeNodeListItemsSanitizesLastErrorPreview(t *testing.T) {
 	}
 	if !strings.Contains(items[0].LastErrorPreview, "***") {
 		t.Fatalf("expected redacted preview, got %q", items[0].LastErrorPreview)
+	}
+}
+
+func TestBuildTelemetryNodeViewsIssueDetection(t *testing.T) {
+	okMieru := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-1",
+		NodeName:        "Mieru Node",
+		NodeProtocol:    "mieru",
+		CollectorStatus: "ok",
+		Capabilities:    nodes.TelemetryCapabilities{ClientIP: false},
+	}})[0]
+	if okMieru.HasIssues {
+		t.Fatalf("Mieru collector with client_ip=false must not count as issue: %+v", okMieru)
+	}
+
+	partial := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-2",
+		NodeName:        "Naive Node",
+		NodeProtocol:    "naive",
+		CollectorStatus: "partial",
+		Warnings:        []string{"collector lag"},
+		Capabilities:    nodes.TelemetryCapabilities{ClientIP: true},
+	}})[0]
+	if !partial.HasIssues {
+		t.Fatalf("partial collector must be marked as issue: %+v", partial)
+	}
+	if partial.IssueText == "" {
+		t.Fatalf("issue nodes must have non-empty issue text: %+v", partial)
+	}
+
+	planned := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-3",
+		NodeName:        "Planned Node",
+		NodeProtocol:    "naive",
+		CollectorStatus: "disabled",
+		SkippedReason:   "planned",
+	}})[0]
+	if planned.HasIssues {
+		t.Fatalf("planned node must not count as issue: %+v", planned)
+	}
+
+	missingAPI := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-4",
+		NodeName:        "Broken Node",
+		NodeProtocol:    "naive",
+		CollectorStatus: "disabled",
+		SkippedReason:   "missing_api_url",
+	}})[0]
+	if !missingAPI.HasIssues {
+		t.Fatalf("missing API URL must be a controlled issue: %+v", missingAPI)
+	}
+	if missingAPI.IssueText == "" {
+		t.Fatalf("missing API URL must provide localized issue text: %+v", missingAPI)
+	}
+
+	missingNodeID := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-5",
+		NodeName:        "Missing Node ID",
+		NodeProtocol:    "naive",
+		CollectorStatus: "disabled",
+		SkippedReason:   "missing_node_id",
+	}})[0]
+	if !missingNodeID.HasIssues || missingNodeID.IssueText == "" {
+		t.Fatalf("missing Node ID must be a controlled issue: %+v", missingNodeID)
+	}
+
+	missingSecret := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-6",
+		NodeName:        "Missing Secret",
+		NodeProtocol:    "naive",
+		CollectorStatus: "disabled",
+		SkippedReason:   "missing_node_secret",
+	}})[0]
+	if !missingSecret.HasIssues || missingSecret.IssueText == "" {
+		t.Fatalf("missing Agent secret must be a controlled issue: %+v", missingSecret)
+	}
+
+	statusOnlyDisabled := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-7",
+		NodeName:        "Disabled Collector",
+		NodeProtocol:    "naive",
+		CollectorStatus: "disabled",
+	}})[0]
+	if !statusOnlyDisabled.HasIssues || statusOnlyDisabled.IssueText == "" {
+		t.Fatalf("status-only collector issue must still have issue text: %+v", statusOnlyDisabled)
+	}
+
+	blankWarning := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-8",
+		NodeName:        "Blank Warning",
+		NodeProtocol:    "naive",
+		CollectorStatus: "ok",
+		Warnings:        []string{"", "   "},
+	}})[0]
+	if blankWarning.HasIssues {
+		t.Fatalf("blank warnings must not count as issue: %+v", blankWarning)
+	}
+
+	redactedWarning := buildTelemetryNodeViews(LocaleRU, []telemetry.NodeCollectorView{{
+		NodeDBID:        "node-9",
+		NodeName:        "Warning Node",
+		NodeProtocol:    "naive",
+		CollectorStatus: "ok",
+		Warnings:        []string{`{"password":"secret"}`},
+	}})[0]
+	if !redactedWarning.HasIssues {
+		t.Fatalf("meaningful warning must count as issue: %+v", redactedWarning)
+	}
+	if redactedWarning.IssueText == "" || !strings.Contains(redactedWarning.IssueText, "***") {
+		t.Fatalf("warning issue text must stay non-empty and sanitized: %+v", redactedWarning)
 	}
 }
 

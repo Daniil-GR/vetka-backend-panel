@@ -18,6 +18,7 @@ import (
 	"vetka-backend-panel/internal/http/middleware"
 	"vetka-backend-panel/internal/nodes"
 	"vetka-backend-panel/internal/subscriptions"
+	"vetka-backend-panel/internal/telemetry"
 	"vetka-backend-panel/internal/users"
 	"vetka-backend-panel/web"
 )
@@ -46,6 +47,7 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 		"safeJSONPreview":      handlers.SafeJSONPreview,
 		"maskSecretCompact":    handlers.MaskSecretCompact,
 		"localizedStatusLabel": handlers.LocalizedStatusLabel,
+		"formatBytes":          handlers.FormatBytesIEC,
 		"join":                 strings.Join,
 	}).ParseFS(web.FS, "templates/*.html", "templates/partials/*.html"))
 
@@ -54,11 +56,12 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 	nodeManager := nodes.NewManager(nodeRepo, userRepo, nodes.NewAgentClient())
 	userSvc := users.NewService(userRepo)
 	subSvc := subscriptions.NewService(userRepo, cfg.AppEnv == "dev", cfg.SubscriptionProfileTitle, cfg.SubscriptionUpdateIntervalHours)
+	telemetrySvc := telemetry.NewService(nodeRepo, userRepo, nodes.NewAgentClient())
 	expiryReconciler := users.NewExpiryReconciler(userRepo, func(ctx context.Context, nodeID string) error {
 		_, err := nodeManager.SyncNode(ctx, nodeID)
 		return err
 	}, logger, cfg.ExpiryReconcileInterval)
-	h := handlers.New(cfg, logger, tmpl, nodeRepo, nodeManager, expiryReconciler, userRepo, userSvc, subSvc)
+	h := handlers.New(cfg, logger, tmpl, nodeRepo, nodeManager, expiryReconciler, userRepo, userSvc, subSvc, telemetrySvc)
 
 	r := chi.NewRouter()
 	r.Get("/static/*", func(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +81,7 @@ func NewServer(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) *App 
 	r.Group(func(protected chi.Router) {
 		protected.Use(func(next http.Handler) http.Handler { return middleware.UIAuth(cfg, next) })
 		protected.Get("/", h.Dashboard)
+		protected.Get("/sessions", h.Sessions)
 		protected.Get("/nodes", h.Nodes)
 		protected.Get("/nodes/{id}", h.NodeDetail)
 		protected.Get("/nodes/{id}/edit", h.EditNodePage)

@@ -18,6 +18,55 @@
   </div>
 </section>
 
+<section class="panel">
+  <div class="panel__header">
+    <div>
+      <h2>{{t .Locale "user_detail.sessions"}}</h2>
+      <p>{{t .Locale "user_detail.sessions_hint"}}</p>
+    </div>
+    <div class="page-actions">
+      <a class="button {{if not .UserTelemetryIncludeRecent}}button-primary{{else}}button-ghost{{end}}" href="/users/{{.User.ID}}">{{t .Locale "sessions.active_only"}}</a>
+      <a class="button {{if .UserTelemetryIncludeRecent}}button-primary{{else}}button-ghost{{end}}" href="/users/{{.User.ID}}?include_recent=true">{{t .Locale "sessions.include_recent"}}</a>
+    </div>
+  </div>
+  {{if .UserTelemetryIssueNodes}}
+  <div class="stack">
+    {{range .UserTelemetryIssueNodes}}
+      <article class="node-card">
+        <div class="node-card__main">
+          <div>
+            <h3>{{if .NodeName}}{{.NodeName}}{{else}}{{t $.Locale "sessions.node_unavailable"}}{{end}}</h3>
+            <p>{{.IssueText}}</p>
+          </div>
+          <div class="node-card__badges">
+            <span class="badge badge-{{.CollectorTone}}">{{.CollectorLabel}}</span>
+          </div>
+        </div>
+      </article>
+    {{end}}
+  </div>
+  {{end}}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>{{t .Locale "sessions.status"}}</th><th>{{t .Locale "user_detail.node"}}</th><th>{{t .Locale "sessions.protocol"}}</th><th>{{t .Locale "sessions.client_ip"}}</th><th>{{t .Locale "sessions.last_seen"}}</th><th>{{t .Locale "sessions.upload"}}</th></tr></thead>
+      <tbody>
+        {{range .UserTelemetryRows}}
+        <tr>
+          <td><span class="badge {{if .Active}}badge-success{{else}}badge-muted{{end}}">{{if .Active}}{{t $.Locale "status.active"}}{{else}}{{t $.Locale "sessions.recent_only"}}{{end}}</span></td>
+          <td><a class="row-link" href="/nodes/{{.NodeDBID}}"><strong>{{.NodeName}}</strong></a></td>
+          <td><span class="badge {{if eq .NodeProtocol "mieru"}}protocol-mieru{{else}}protocol-naive{{end}}">{{.NodeProtocol}}</span></td>
+          <td><code class="code-value">{{if .ClientIP}}{{.ClientIP}}{{else}}{{if eq .NodeProtocol "mieru"}}{{t $.Locale "sessions.ip_unavailable_mieru"}}{{else}}{{t $.Locale "sessions.ip_unknown"}}{{end}}{{end}}</code></td>
+          <td>{{formatTime $.Locale .LastSeenAt}}</td>
+          <td>{{.TrafficText}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6"><div class="empty-state empty-state--compact"><h3>{{if .UserTelemetryIncludeRecent}}{{t .Locale "sessions.no_recent"}}{{else}}{{t .Locale "sessions.no_active"}}{{end}}</h3></div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <div class="content-grid content-grid--detail">
   <section class="panel">
     <div class="panel__header"><div><h2>{{t .Locale "user_detail.overview"}}</h2><p>{{.SubscriptionExpiryText}}</p></div></div>

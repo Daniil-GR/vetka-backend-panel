@@ -32,3 +32,26 @@ func TestNodeDetailRouteExists(t *testing.T) {
 		t.Fatalf("expected redirect to /login, got %q", location)
 	}
 }
+
+func TestSessionsRouteExists(t *testing.T) {
+	app := NewServer(config.Config{
+		AppEnv:                          "test",
+		AdminUsername:                   "admin",
+		AdminPassword:                   "secret",
+		AdminAPIToken:                   "token",
+		AppTimezone:                     "Europe/Moscow",
+		SubscriptionProfileTitle:        "Vetka VPN",
+		SubscriptionUpdateIntervalHours: 12,
+	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	rec := httptest.NewRecorder()
+	app.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected protected route redirect, got %d", rec.Code)
+	}
+	if location := rec.Header().Get("Location"); location != "/login" {
+		t.Fatalf("expected redirect to /login, got %q", location)
+	}
+}

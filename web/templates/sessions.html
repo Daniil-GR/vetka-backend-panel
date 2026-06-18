@@ -1,0 +1,99 @@
+{{define "sessions.html"}}{{template "app-layout-open" .}}{{template "sessions-content" .}}{{template "app-layout-close" .}}{{end}}
+
+{{define "sessions-content"}}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">{{t .Locale "nav.sessions"}}</p>
+    <h1>{{t .Locale "sessions.heading"}}</h1>
+    <p class="page-intro">{{t .Locale "sessions.intro"}}</p>
+  </div>
+</section>
+
+<section class="metrics-grid">
+  <article class="metric-card"><span>{{t .Locale "sessions.active_count"}}</span><strong>{{.Summary.ActiveSessions}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "sessions.unique_ips"}}</span><strong>{{.Summary.UniqueActiveIPs}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "sessions.collectors_ok"}}</span><strong>{{.Summary.CollectorsOK}}</strong></article>
+  <article class="metric-card"><span>{{t .Locale "sessions.collectors_degraded"}}</span><strong>{{.Summary.CollectorsIssues}}</strong></article>
+</section>
+
+<section class="panel filters-panel">
+  <form method="get" action="/sessions" class="filter-bar">
+    <input type="hidden" name="include_recent" value="{{if .IncludeRecent}}true{{else}}false{{end}}">
+    <label class="field field-search"><span>{{t .Locale "users.search"}}</span><input type="search" name="q" value="{{.SessionQuery}}" placeholder="{{t .Locale "users.search_placeholder"}}"></label>
+    <label class="field"><span>{{t .Locale "sessions.protocol"}}</span><select name="protocol"><option value="all" {{if eq .SessionProtocol "all"}}selected{{end}}>{{t .Locale "users.filter_all"}}</option><option value="naive" {{if eq .SessionProtocol "naive"}}selected{{end}}>Naive</option><option value="mieru" {{if eq .SessionProtocol "mieru"}}selected{{end}}>Mieru</option></select></label>
+    <label class="field"><span>{{t .Locale "sessions.status"}}</span><select name="status"><option value="active" {{if eq .SessionStatus "active"}}selected{{end}}>{{t .Locale "sessions.active_only"}}</option><option value="all" {{if eq .SessionStatus "all"}}selected{{end}}>{{t .Locale "sessions.include_recent"}}</option><option value="recent" {{if eq .SessionStatus "recent"}}selected{{end}}>{{t .Locale "sessions.recent_only"}}</option></select></label>
+    <button class="button button-primary" type="submit">{{t .Locale "users.apply"}}</button>
+    <a class="button button-ghost" href="/sessions">{{t .Locale "sessions.refresh"}}</a>
+  </form>
+  <div class="page-actions">
+    <a class="button {{if not .IncludeRecent}}button-primary{{else}}button-ghost{{end}}" href="/sessions">{{t .Locale "sessions.active_only"}}</a>
+    <a class="button {{if .IncludeRecent}}button-primary{{else}}button-ghost{{end}}" href="/sessions?include_recent=true&status=all">{{t .Locale "sessions.include_recent"}}</a>
+  </div>
+</section>
+
+{{if .HasTelemetryIssues}}
+<section class="panel">
+  <div class="panel__header"><div><h2>{{t .Locale "dashboard.infrastructure"}}</h2><p>{{t .Locale "sessions.partial_warning"}}</p></div></div>
+  <div class="stack">
+    {{range .TelemetryIssueNodes}}
+      <article class="node-card">
+        <div class="node-card__main">
+          <div>
+            <h3>{{if .NodeName}}{{.NodeName}}{{else}}{{.NodeID}}{{end}}</h3>
+            <p>{{.IssueText}}</p>
+          </div>
+          <div class="node-card__badges">
+            <span class="badge {{if eq .NodeProtocol "mieru"}}protocol-mieru{{else}}protocol-naive{{end}}">{{.NodeProtocol}}</span>
+            <span class="badge badge-{{.CollectorTone}}">{{.CollectorLabel}}</span>
+          </div>
+        </div>
+      </article>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+<section class="panel">
+  <div class="panel__header"><div><h2>{{t .Locale "sessions.heading"}}</h2></div></div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>{{t .Locale "sessions.status"}}</th>
+          <th>{{t .Locale "sessions.user"}}</th>
+          <th>{{t .Locale "sessions.node"}}</th>
+          <th>{{t .Locale "sessions.protocol"}}</th>
+          <th>{{t .Locale "sessions.client_ip"}}</th>
+          <th>{{t .Locale "sessions.last_seen"}}</th>
+          <th>{{t .Locale "sessions.first_seen"}}</th>
+          <th>{{t .Locale "sessions.upload"}}</th>
+          <th>{{t .Locale "sessions.download"}}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .TelemetryRows}}
+        <tr>
+          <td><span class="badge {{if .Active}}badge-success{{else}}badge-muted{{end}}">{{if .Active}}{{t $.Locale "status.active"}}{{else}}{{t $.Locale "sessions.recent_only"}}{{end}}</span></td>
+          <td>
+            {{if .UserKnown}}
+            <a class="row-link" href="/users/{{.BackendUserID}}"><strong>{{.BackendUsername}}</strong><span>{{if .BackendDisplayName}}{{.BackendDisplayName}}{{else}}{{t $.Locale "status.no_display_name"}}{{end}}</span></a>
+            {{else}}
+            <div class="row-link"><strong>{{t $.Locale "sessions.unknown_user"}}</strong><span><code class="code-value">{{.MaskedProtocolUsername}}</code></span></div>
+            {{end}}
+          </td>
+          <td><a class="row-link" href="/nodes/{{.NodeDBID}}"><strong>{{.NodeName}}</strong></a></td>
+          <td><span class="badge {{if eq .NodeProtocol "mieru"}}protocol-mieru{{else}}protocol-naive{{end}}">{{.NodeProtocol}}</span></td>
+          <td><code class="code-value">{{if .ClientIP}}{{.ClientIP}}{{else}}{{if eq .NodeProtocol "mieru"}}{{t $.Locale "sessions.ip_unavailable_mieru"}}{{else}}{{t $.Locale "sessions.ip_unknown"}}{{end}}{{end}}</code></td>
+          <td>{{formatTime $.Locale .LastSeenAt}}</td>
+          <td>{{formatTime $.Locale .FirstSeenAt}}</td>
+          <td>{{.UploadText}}</td>
+          <td>{{.DownloadText}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="9"><div class="empty-state empty-state--compact"><h3>{{if .IncludeRecent}}{{t .Locale "sessions.no_recent"}}{{else}}{{t .Locale "sessions.no_active"}}{{end}}</h3></div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}

@@ -114,6 +114,66 @@
   </div>
 </section>
 
+{{with .TelemetryNode}}
+<section class="panel">
+  <div class="panel__header">
+    <div>
+      <h2>{{t $.Locale "node_detail.sessions"}}</h2>
+      <p>{{t $.Locale "node_detail.sessions_hint"}}</p>
+    </div>
+    <div class="page-actions">
+      <a class="button {{if not $.TelemetryIncludeRecent}}button-primary{{else}}button-ghost{{end}}" href="/nodes/{{$.Node.ID}}">{{t $.Locale "sessions.active_only"}}</a>
+      <a class="button {{if $.TelemetryIncludeRecent}}button-primary{{else}}button-ghost{{end}}" href="/nodes/{{$.Node.ID}}?include_recent=true">{{t $.Locale "sessions.include_recent"}}</a>
+      <span class="badge badge-{{.CollectorTone}}">{{.CollectorLabel}}</span>
+    </div>
+  </div>
+  <dl class="detail-grid detail-grid--wide overview-grid">
+    <div><dt>{{t $.Locale "sessions.collector_status"}}</dt><dd><span class="badge badge-{{.CollectorTone}}">{{.CollectorLabel}}</span></dd></div>
+    <div><dt>{{t $.Locale "sessions.last_successful_collection"}}</dt><dd>{{if .LastSuccessfulCollectionAt}}{{formatTime $.Locale .LastSuccessfulCollectionAt}}{{else}}-{{end}}</dd></div>
+    <div><dt>{{t $.Locale "sessions.capabilities"}}</dt><dd>
+      <div class="stack stack--tight">
+        <span>{{t $.Locale "sessions.capability_per_user_activity"}}: {{if .PerUserActivityCapable}}{{t $.Locale "status.enabled"}}{{else}}{{t $.Locale "status.disabled"}}{{end}}</span>
+        <span>{{t $.Locale "sessions.capability_traffic_counters"}}: {{if .TrafficCountersCapable}}{{t $.Locale "status.enabled"}}{{else}}{{t $.Locale "status.disabled"}}{{end}}</span>
+        <span>{{t $.Locale "sessions.capability_first_seen"}}: {{if .FirstSeenCapable}}{{t $.Locale "status.enabled"}}{{else}}{{t $.Locale "status.disabled"}}{{end}}</span>
+        <span>{{t $.Locale "sessions.capability_last_seen"}}: {{if .LastSeenCapable}}{{t $.Locale "status.enabled"}}{{else}}{{t $.Locale "status.disabled"}}{{end}}</span>
+        <span>{{t $.Locale "sessions.capability_client_ip"}}:
+          {{if .ClientIPCapable}}
+            {{t $.Locale "status.enabled"}}
+          {{else if eq $.Node.ProtocolType "mieru"}}
+            {{t $.Locale "sessions.ip_unavailable_mieru"}}
+          {{else}}
+            {{t $.Locale "status.disabled"}}
+          {{end}}
+        </span>
+      </div>
+    </dd></div>
+  </dl>
+  {{if .IssueText}}<p class="error-inline">{{.IssueText}}</p>{{end}}
+  {{if and .Error (ne .Error .IssueText)}}<p class="hint">{{.Error}}</p>{{end}}
+  {{if .Warnings}}<div class="stack">{{range .Warnings}}<p class="hint">{{.}}</p>{{end}}</div>{{end}}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>{{t $.Locale "sessions.status"}}</th><th>{{t $.Locale "sessions.user"}}</th><th>{{t $.Locale "sessions.client_ip"}}</th><th>{{t $.Locale "sessions.last_seen"}}</th><th>{{t $.Locale "sessions.first_seen"}}</th><th>{{t $.Locale "sessions.upload"}}</th><th>{{t $.Locale "sessions.download"}}</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        <tr>
+          <td><span class="badge {{if .Active}}badge-success{{else}}badge-muted{{end}}">{{if .Active}}{{t $.Locale "status.active"}}{{else}}{{t $.Locale "sessions.recent_only"}}{{end}}</span></td>
+          <td>{{if .UserKnown}}<a class="row-link" href="/users/{{.BackendUserID}}"><strong>{{.BackendUsername}}</strong><span>{{if .BackendDisplayName}}{{.BackendDisplayName}}{{else}}{{t $.Locale "status.no_display_name"}}{{end}}</span></a>{{else}}<div class="row-link"><strong>{{t $.Locale "sessions.unknown_user"}}</strong><span><code class="code-value">{{.MaskedProtocolUsername}}</code></span></div>{{end}}</td>
+          <td><code class="code-value">{{if .ClientIP}}{{.ClientIP}}{{else}}{{if eq $.Node.ProtocolType "mieru"}}{{t $.Locale "sessions.ip_unavailable_mieru"}}{{else}}{{t $.Locale "sessions.ip_unknown"}}{{end}}{{end}}</code></td>
+          <td>{{formatTime $.Locale .LastSeenAt}}</td>
+          <td>{{formatTime $.Locale .FirstSeenAt}}</td>
+          <td>{{.UploadText}}</td>
+          <td>{{.DownloadText}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7"><div class="empty-state empty-state--compact"><h3>{{if $.TelemetryIncludeRecent}}{{t $.Locale "sessions.no_recent"}}{{else}}{{t $.Locale "sessions.no_active"}}{{end}}</h3></div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+
 <section class="panel danger-zone">
   <div class="panel__header"><div><h2>{{t .Locale "node_detail.danger"}}</h2><p><code>node.enabled=false</code> {{t .Locale "node_detail.danger_hint_text"}}</p></div></div>
   <form method="post" action="/nodes/{{.Node.ID}}/delete" data-confirm="{{t .Locale "node_detail.delete_confirm"}}"><button class="button button-danger" type="submit">{{t .Locale "node_detail.delete"}}</button></form>

@@ -10,6 +10,7 @@ import (
 
 	"vetka-backend-panel/internal/http/handlers"
 	"vetka-backend-panel/internal/nodes"
+	"vetka-backend-panel/internal/telemetry"
 	"vetka-backend-panel/internal/users"
 	"vetka-backend-panel/web"
 )
@@ -29,6 +30,7 @@ func parseUITemplates(t *testing.T) *template.Template {
 		"truncateText":        handlers.TruncateText,
 		"safeJSONPreview":     handlers.SafeJSONPreview,
 		"maskSecretCompact":   handlers.MaskSecretCompact,
+		"formatBytes":         handlers.FormatBytesIEC,
 		"localizedStatusLabel": func(locale any, status string) string {
 			return handlers.LocalizedStatusLabel(normalizeTestLocale(locale), status)
 		},
@@ -58,14 +60,14 @@ func TestDashboardTemplateLocalizesNavigation(t *testing.T) {
 		locale handlers.Locale
 		want   []string
 	}{
-		{name: "ru", locale: handlers.LocaleRU, want: []string{"Главная", "Пользователи"}},
-		{name: "en", locale: handlers.LocaleEN, want: []string{"Dashboard", "Users"}},
+		{name: "ru", locale: handlers.LocaleRU, want: []string{"Главная", "Пользователи", "Сеансы"}},
+		{name: "en", locale: handlers.LocaleEN, want: []string{"Dashboard", "Users", "Sessions"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			data := map[string]any{
 				"Locale":        tc.locale,
 				"Title":         "page.dashboard",
-				"NavItems":      []any{map[string]any{"Label": handlers.Translate(tc.locale, "nav.dashboard"), "URL": "/", "Active": true}, map[string]any{"Label": handlers.Translate(tc.locale, "nav.users"), "URL": "/users"}},
+				"NavItems":      []any{map[string]any{"Label": handlers.Translate(tc.locale, "nav.dashboard"), "URL": "/", "Active": true}, map[string]any{"Label": handlers.Translate(tc.locale, "nav.users"), "URL": "/users"}, map[string]any{"Label": handlers.Translate(tc.locale, "nav.sessions"), "URL": "/sessions"}},
 				"Breadcrumbs":   []any{},
 				"FlashItems":    []any{},
 				"Environment":   "DEV",
@@ -503,6 +505,79 @@ func TestUserDetailTemplateMasksProtocolUsernameAndPassword(t *testing.T) {
 	}
 }
 
+func TestSessionsTemplateRendersAndMasksUnknownUsers(t *testing.T) {
+	tmpl := parseUITemplates(t)
+	now := time.Now()
+	data := map[string]any{
+		"Locale":          handlers.LocaleRU,
+		"Title":           "page.sessions",
+		"NavItems":        []any{},
+		"Breadcrumbs":     []any{},
+		"FlashItems":      []any{},
+		"Environment":     "DEV",
+		"CurrentPath":     "/sessions",
+		"Summary":         telemetry.Summary{ActiveSessions: 1},
+		"TelemetryNodes":  []any{},
+		"TelemetryRows":   []any{map[string]any{"Active": true, "UserKnown": false, "MaskedProtocolUsername": handlers.Mask("u_unknown"), "NodeDBID": "node-1", "NodeName": "Node One", "NodeProtocol": "mieru", "LastSeenAt": &now, "FirstSeenAt": &now, "UploadText": "1.0 KiB", "DownloadText": "2.0 KiB", "ClientIP": ""}},
+		"IncludeRecent":   false,
+		"SessionQuery":    "",
+		"SessionProtocol": "all",
+		"SessionStatus":   "active",
+	}
+	var out bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&out, "sessions.html", data); err != nil {
+		t.Fatalf("render sessions template: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, handlers.Mask("u_unknown")) {
+		t.Fatalf("expected masked protocol username, got %s", body)
+	}
+	if strings.Contains(body, "u_unknown") {
+		t.Fatalf("raw unknown protocol username leaked: %s", body)
+	}
+	if !strings.Contains(body, handlers.Translate(handlers.LocaleRU, "sessions.ip_unavailable_mieru")) {
+		t.Fatalf("expected mieru ip limitation text, got %s", body)
+	}
+}
+
+func TestNodeDetailTemplateRendersTelemetryPanel(t *testing.T) {
+	tmpl := parseUITemplates(t)
+	node := nodes.Node{ID: "node-1", NodeID: "agent-1", Name: "Node One", ProtocolType: "mieru", Enabled: true, SetupState: "connected"}
+	now := time.Now()
+	data := map[string]any{
+		"Title":                  "Node Detail",
+		"NavItems":               []any{},
+		"Breadcrumbs":            []any{},
+		"FlashItems":             []any{},
+		"Environment":            "DEV",
+		"NodeStatusTone":         "success",
+		"NodeStatusLabel":        "Connected",
+		"ProtocolTone":           "protocol-mieru",
+		"MaskedSecret":           handlers.MaskSecretCompact("raw-super-secret"),
+		"Node":                   node,
+		"Assignments":            []any{},
+		"Events":                 []any{},
+		"TelemetryIncludeRecent": true,
+		"TelemetryNode": map[string]any{
+			"CollectorTone":  "warning",
+			"CollectorLabel": "Collector partial",
+			"Rows": []any{
+				map[string]any{"Active": true, "UserKnown": false, "MaskedProtocolUsername": handlers.Mask("u_demo"), "ClientIP": "", "LastSeenAt": &now, "FirstSeenAt": &now, "UploadText": "1.0 KiB", "DownloadText": "2.0 KiB"},
+			},
+		},
+	}
+	var out bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&out, "node_detail.html", data); err != nil {
+		t.Fatalf("render node detail telemetry: %v", err)
+	}
+	body := out.String()
+	for _, want := range []string{handlers.Translate(handlers.LocaleRU, "node_detail.sessions"), handlers.Translate(handlers.LocaleRU, "sessions.include_recent")} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in node detail telemetry panel: %s", want, body)
+		}
+	}
+}
+
 func TestFlashMessagesRenderEscapedWithoutDuplicateFallback(t *testing.T) {
 	tmpl := parseUITemplates(t)
 	data := map[string]any{
@@ -612,9 +687,13 @@ func TestRepresentativeTemplatesRender(t *testing.T) {
 			"Title": "Nodes", "NavItems": []any{}, "Breadcrumbs": []any{}, "FlashItems": []any{}, "Environment": "DEV",
 			"NodeItems": []any{}, "NodeStats": nodes.DashboardStats{}, "BackendIP": "127.0.0.1", "DefaultPort": 2222,
 		},
+		"sessions.html": {
+			"Title": "Sessions", "NavItems": []any{}, "Breadcrumbs": []any{}, "FlashItems": []any{}, "Environment": "DEV", "CurrentPath": "/sessions",
+			"Summary": telemetry.Summary{}, "TelemetryRows": []any{}, "TelemetryNodes": []any{}, "IncludeRecent": false, "SessionQuery": "", "SessionProtocol": "all", "SessionStatus": "active",
+		},
 		"node_detail.html": {
 			"Title": "Node Detail", "NavItems": []any{}, "Breadcrumbs": []any{}, "FlashItems": []any{}, "Environment": "DEV",
-			"NodeStatusTone": "success", "NodeStatusLabel": "Connected", "ProtocolTone": "protocol-mieru", "MaskedSecret": handlers.MaskSecretCompact(node.NodeSecret), "Node": node, "Assignments": []users.NodeUserAccessDetail{}, "Events": []any{},
+			"NodeStatusTone": "success", "NodeStatusLabel": "Connected", "ProtocolTone": "protocol-mieru", "MaskedSecret": handlers.MaskSecretCompact(node.NodeSecret), "Node": node, "Assignments": []users.NodeUserAccessDetail{}, "Events": []any{}, "TelemetryNode": map[string]any{"CollectorTone": "success", "CollectorLabel": "Collector OK", "Rows": []any{}},
 		},
 		"node_edit.html": {
 			"Title": "Edit Node", "NavItems": []any{}, "Breadcrumbs": []any{}, "FlashItems": []any{}, "Environment": "DEV", "Node": node,

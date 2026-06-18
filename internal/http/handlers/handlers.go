@@ -20,8 +20,15 @@ import (
 	"vetka-backend-panel/internal/nodes"
 	"vetka-backend-panel/internal/security"
 	"vetka-backend-panel/internal/subscriptions"
+	"vetka-backend-panel/internal/telemetry"
 	"vetka-backend-panel/internal/users"
 )
+
+type telemetryReader interface {
+	AllSessions(context.Context, telemetry.Query) (telemetry.AllSessionsResult, error)
+	NodeSessions(context.Context, string, bool) (telemetry.NodeSessionsResult, error)
+	UserSessions(context.Context, string, bool) (telemetry.UserSessionsResult, error)
+}
 
 type Handler struct {
 	cfg              config.Config
@@ -34,9 +41,10 @@ type Handler struct {
 	userRepo         *users.Repository
 	userSvc          *users.Service
 	subSvc           *subscriptions.Service
+	telemetrySvc     telemetryReader
 }
 
-func New(cfg config.Config, logger *slog.Logger, tmpl *template.Template, nodeRepo *nodes.Repository, nodeManager *nodes.Manager, expiryReconciler *users.ExpiryReconciler, userRepo *users.Repository, userSvc *users.Service, subSvc *subscriptions.Service) *Handler {
+func New(cfg config.Config, logger *slog.Logger, tmpl *template.Template, nodeRepo *nodes.Repository, nodeManager *nodes.Manager, expiryReconciler *users.ExpiryReconciler, userRepo *users.Repository, userSvc *users.Service, subSvc *subscriptions.Service, telemetrySvc telemetryReader) *Handler {
 	return &Handler{
 		cfg:              cfg,
 		appLocation:      loadAppLocation(cfg.AppTimezone),
@@ -48,6 +56,7 @@ func New(cfg config.Config, logger *slog.Logger, tmpl *template.Template, nodeRe
 		userRepo:         userRepo,
 		userSvc:          userSvc,
 		subSvc:           subSvc,
+		telemetrySvc:     telemetrySvc,
 	}
 }
 
@@ -123,6 +132,42 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	data["UpcomingUsers"] = upcomingItems
 	data["RecentEvents"] = eventItems
 	h.render(w, r, "dashboard.html", data)
+}
+
+func (h *Handler) Sessions(w http.ResponseWriter, r *http.Request) {
+	locale := ResolveLocale(r)
+	status := normalizeTelemetryStatus(r.URL.Query().Get("status"))
+	requestedIncludeRecent := strings.EqualFold(r.URL.Query().Get("include_recent"), "true")
+	includeRecent := requestedIncludeRecent || status == "recent" || status == "all"
+	query := telemetry.Query{
+		IncludeRecent: includeRecent,
+		Search:        strings.TrimSpace(r.URL.Query().Get("q")),
+		Protocol:      strings.TrimSpace(r.URL.Query().Get("protocol")),
+		Status:        status,
+	}
+	if query.Protocol == "" {
+		query.Protocol = "all"
+	}
+
+	result, err := h.telemetrySvc.AllSessions(r.Context(), query)
+	if h.handleErr(w, r, err) {
+		return
+	}
+
+	nodeViews := buildTelemetryNodeViews(locale, result.Nodes)
+	issueNodes := buildTelemetryIssueNodes(nodeViews)
+	data := h.pageData(r, "page.sessions", "sessions")
+	data["Breadcrumbs"] = []breadcrumb{{Label: Translate(locale, "nav.sessions"), URL: "/sessions"}}
+	data["TelemetryRows"] = buildTelemetrySessionRows(result.Rows)
+	data["TelemetryNodes"] = nodeViews
+	data["TelemetryIssueNodes"] = issueNodes
+	data["HasTelemetryIssues"] = len(issueNodes) > 0
+	data["IncludeRecent"] = includeRecent
+	data["SessionQuery"] = query.Search
+	data["SessionProtocol"] = query.Protocol
+	data["SessionStatus"] = query.Status
+	data["Summary"] = result.Summary
+	h.render(w, r, "sessions.html", data)
 }
 
 func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
@@ -226,6 +271,22 @@ func (h *Handler) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	data["Assignments"] = assignmentViews
 	data["Events"] = eventItems
+	includeRecent := strings.EqualFold(r.URL.Query().Get("include_recent"), "true")
+	if telemetryResult, telemetryErr := h.telemetrySvc.NodeSessions(r.Context(), node.ID, includeRecent); telemetryErr == nil {
+		data["TelemetryNode"] = buildTelemetryNodeViews(locale, []telemetry.NodeCollectorView{telemetryResult.Node})[0]
+		data["TelemetryIncludeRecent"] = includeRecent
+	} else {
+		data["TelemetryNode"] = buildTelemetryNodeViews(locale, []telemetry.NodeCollectorView{{
+			NodeDBID:        node.ID,
+			NodeID:          node.NodeID,
+			NodeName:        node.Name,
+			NodeProtocol:    node.ProtocolType,
+			NodeEnabled:     node.Enabled,
+			CollectorStatus: "unavailable",
+			Error:           telemetryErr.Error(),
+		}})[0]
+		data["TelemetryIncludeRecent"] = includeRecent
+	}
 	h.render(w, r, "node_detail.html", data)
 }
 
@@ -465,7 +526,35 @@ func (h *Handler) UserDetail(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
+	includeRecent := strings.EqualFold(r.URL.Query().Get("include_recent"), "true")
+	if telemetryResult, telemetryErr := h.telemetrySvc.UserSessions(r.Context(), user.ID, includeRecent); telemetryErr == nil {
+		data["UserTelemetryRows"] = buildTelemetrySessionRows(telemetryResult.Rows)
+		userTelemetryNodes := buildTelemetryNodeViews(locale, telemetryResult.Nodes)
+		data["UserTelemetryNodes"] = userTelemetryNodes
+		data["UserTelemetryIssueNodes"] = buildTelemetryIssueNodes(userTelemetryNodes)
+		data["UserTelemetryIncludeRecent"] = includeRecent
+	} else {
+		data["UserTelemetryRows"] = []telemetrySessionRowView{}
+		userTelemetryNodes := buildTelemetryNodeViews(locale, []telemetry.NodeCollectorView{{
+			CollectorStatus: "unavailable",
+			Error:           telemetryErr.Error(),
+		}})
+		data["UserTelemetryNodes"] = userTelemetryNodes
+		data["UserTelemetryIssueNodes"] = userTelemetryNodes
+		data["UserTelemetryIncludeRecent"] = includeRecent
+	}
 	h.render(w, r, "user_detail.html", data)
+}
+
+func normalizeTelemetryStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "recent":
+		return "recent"
+	case "all":
+		return "all"
+	default:
+		return "active"
+	}
 }
 
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {

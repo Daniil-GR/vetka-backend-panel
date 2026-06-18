@@ -2,9 +2,11 @@ package users
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type DashboardStats struct {
@@ -30,6 +32,12 @@ type NodeUserAccessDetail struct {
 	UserEnabled   bool
 	UserExpiresAt *time.Time
 	UserQuotaMB   int
+}
+
+type SessionLookup struct {
+	UserID           string
+	NodeID           string
+	ProtocolUsername string
 }
 
 func (r *Repository) DashboardStats(ctx context.Context, soonBefore time.Time) (DashboardStats, error) {
@@ -161,4 +169,63 @@ order by u.username`, nodeID)
 		)
 		return item, err
 	})
+}
+
+func (r *Repository) SessionLookupForUser(ctx context.Context, userID string) ([]SessionLookup, error) {
+	rows, err := r.pool.Query(ctx, `select user_id, node_id, protocol_username
+from user_node_access
+where user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, scanSessionLookup)
+}
+
+func (r *Repository) SessionLookupForNodes(ctx context.Context, nodeIDs []string) ([]SessionLookup, error) {
+	typedIDs, err := normalizeNodeLookupIDs(nodeIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(typedIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.pool.Query(ctx, `select user_id, node_id, protocol_username
+from user_node_access
+where node_id = any($1)`, typedIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, scanSessionLookup)
+}
+
+func normalizeNodeLookupIDs(nodeIDs []string) ([]pgtype.UUID, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	result := make([]pgtype.UUID, 0, len(nodeIDs))
+	seen := make(map[string]struct{}, len(nodeIDs))
+	for _, nodeID := range nodeIDs {
+		trimmed := nodeID
+		if trimmed == "" {
+			return nil, fmt.Errorf("invalid node id for session lookup: empty value")
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		var parsed pgtype.UUID
+		if err := parsed.Scan(trimmed); err != nil {
+			return nil, fmt.Errorf("invalid node id for session lookup %q: %w", trimmed, err)
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, parsed)
+	}
+	return result, nil
+}
+
+func scanSessionLookup(row pgx.CollectableRow) (SessionLookup, error) {
+	var item SessionLookup
+	err := row.Scan(&item.UserID, &item.NodeID, &item.ProtocolUsername)
+	return item, err
 }

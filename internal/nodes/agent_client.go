@@ -54,6 +54,39 @@ func (c *AgentClient) Stats(ctx context.Context, node Node) (AgentCallResult, er
 	return c.do(ctx, node, http.MethodGet, "/v1/stats", nil)
 }
 
+func (c *AgentClient) TelemetrySessions(ctx context.Context, node Node, includeRecent bool) (TelemetryResponse, AgentCallResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	path := "/v1/telemetry/sessions"
+	if includeRecent {
+		path += "?include_recent=true"
+	}
+
+	result, err := c.do(ctx, node, http.MethodGet, path, nil)
+	if err != nil {
+		if result.StatusCode > 0 {
+			return TelemetryResponse{}, result, fmt.Errorf("telemetry request failed with http %d", result.StatusCode)
+		}
+		return TelemetryResponse{}, result, fmt.Errorf("telemetry request failed")
+	}
+
+	var response TelemetryResponse
+	if err := json.Unmarshal(result.Body, &response); err != nil {
+		return TelemetryResponse{}, result, fmt.Errorf("decode telemetry response: %w", err)
+	}
+	if !response.OK {
+		return TelemetryResponse{}, result, fmt.Errorf("telemetry response returned ok=false")
+	}
+	if response.NodeID != "" && response.NodeID != node.NodeID {
+		return TelemetryResponse{}, result, fmt.Errorf("telemetry node_id mismatch")
+	}
+	if response.ProtocolType != "" && response.ProtocolType != node.ProtocolType {
+		return TelemetryResponse{}, result, fmt.Errorf("telemetry protocol_type mismatch")
+	}
+	return response, result, nil
+}
+
 func (c *AgentClient) Reload(ctx context.Context, node Node) (AgentCallResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

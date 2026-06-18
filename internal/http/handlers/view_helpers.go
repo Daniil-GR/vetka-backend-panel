@@ -6,10 +6,12 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"vetka-backend-panel/internal/nodes"
+	"vetka-backend-panel/internal/telemetry"
 	"vetka-backend-panel/internal/users"
 )
 
@@ -48,6 +50,7 @@ func navItems(active string) []navItem {
 		{URL: "/", Key: "dashboard"},
 		{URL: "/users", Key: "users"},
 		{URL: "/nodes", Key: "nodes"},
+		{URL: "/sessions", Key: "sessions"},
 	}
 	for i := range items {
 		items[i].Active = items[i].Key == active
@@ -116,6 +119,32 @@ func protocolTone(protocol string) string {
 		return "protocol-naive"
 	default:
 		return "muted"
+	}
+}
+
+func collectorStatusTone(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "ok":
+		return "success"
+	case "partial":
+		return "warning"
+	case "disabled":
+		return "disabled"
+	default:
+		return "danger"
+	}
+}
+
+func collectorStatusLabel(locale Locale, status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "ok":
+		return Translate(locale, "sessions.collector_ok")
+	case "partial":
+		return Translate(locale, "sessions.collector_partial")
+	case "disabled":
+		return Translate(locale, "sessions.collector_disabled")
+	default:
+		return Translate(locale, "sessions.collector_unavailable")
 	}
 }
 
@@ -430,6 +459,26 @@ func FormatDateTimeWithZoneForLocale(locale Locale, t *time.Time, loc *time.Loca
 	return t.In(loc).Format(layout)
 }
 
+func FormatBytesIEC(value int64) string {
+	if value < 0 {
+		return "0 B"
+	}
+	const unit = 1024
+	if value < unit {
+		return strconv.FormatInt(value, 10) + " B"
+	}
+	divisor := float64(unit)
+	units := []string{"KiB", "MiB", "GiB", "TiB"}
+	for i, label := range units {
+		next := divisor * unit
+		if float64(value) < next || i == len(units)-1 {
+			return fmt.Sprintf("%.1f %s", float64(value)/divisor, label)
+		}
+		divisor = next
+	}
+	return strconv.FormatInt(value, 10) + " B"
+}
+
 func matchesUserFilter(item userListItem, filter, search string) bool {
 	filter = strings.TrimSpace(strings.ToLower(filter))
 	search = strings.TrimSpace(strings.ToLower(search))
@@ -517,4 +566,167 @@ type nodeAssignmentView struct {
 	Enabled                bool
 	MaskedProtocolUsername string
 	MaskedProtocolPassword string
+}
+
+type telemetrySessionRowView struct {
+	NodeDBID               string
+	NodeName               string
+	NodeProtocol           string
+	BackendUserID          string
+	BackendUsername        string
+	BackendDisplayName     *string
+	UserKnown              bool
+	MaskedProtocolUsername string
+	ClientIP               string
+	Active                 bool
+	FirstSeenAt            *time.Time
+	LastSeenAt             *time.Time
+	UploadText             string
+	DownloadText           string
+	TrafficText            string
+	Source                 string
+	TrafficScope           string
+	UserPresentInCache     bool
+	IPObserved             bool
+	TrafficObserved        bool
+}
+
+type telemetryNodeView struct {
+	NodeDBID                   string
+	NodeID                     string
+	NodeName                   string
+	NodeProtocol               string
+	NodeEnabled                bool
+	CollectorStatus            string
+	CollectorTone              string
+	CollectorLabel             string
+	LastSuccessfulCollectionAt *time.Time
+	PerUserActivityCapable     bool
+	TrafficCountersCapable     bool
+	FirstSeenCapable           bool
+	LastSeenCapable            bool
+	ClientIPCapable            bool
+	Warnings                   []string
+	Error                      string
+	IssueText                  string
+	Rows                       []telemetrySessionRowView
+	SkippedReason              string
+	HasIssues                  bool
+}
+
+func buildTelemetrySessionRows(rows []telemetry.SessionView) []telemetrySessionRowView {
+	result := make([]telemetrySessionRowView, 0, len(rows))
+	for _, row := range rows {
+		trafficText := FormatBytesIEC(row.UploadBytes + row.DownloadBytes)
+		result = append(result, telemetrySessionRowView{
+			NodeDBID:               row.NodeDBID,
+			NodeName:               row.NodeName,
+			NodeProtocol:           row.NodeProtocol,
+			BackendUserID:          row.BackendUserID,
+			BackendUsername:        row.BackendUsername,
+			BackendDisplayName:     row.BackendDisplayName,
+			UserKnown:              row.UserKnown,
+			MaskedProtocolUsername: row.MaskedProtocolUsername,
+			ClientIP:               row.ClientIP,
+			Active:                 row.Active,
+			FirstSeenAt:            row.FirstSeenAt,
+			LastSeenAt:             row.LastSeenAt,
+			UploadText:             FormatBytesIEC(row.UploadBytes),
+			DownloadText:           FormatBytesIEC(row.DownloadBytes),
+			TrafficText:            trafficText,
+			Source:                 row.Source,
+			TrafficScope:           row.TrafficScope,
+			UserPresentInCache:     row.UserPresentInCache,
+			IPObserved:             row.IPObserved,
+			TrafficObserved:        row.TrafficObserved,
+		})
+	}
+	return result
+}
+
+func buildTelemetryNodeViews(locale Locale, nodesList []telemetry.NodeCollectorView) []telemetryNodeView {
+	result := make([]telemetryNodeView, 0, len(nodesList))
+	for _, node := range nodesList {
+		warnings := make([]string, 0, len(node.Warnings))
+		for _, warning := range node.Warnings {
+			safe := strings.TrimSpace(SafeOperationalError(warning))
+			if safe == "" {
+				continue
+			}
+			warnings = append(warnings, safe)
+		}
+		hasIssues := telemetry.NodeHasIssue(node)
+		result = append(result, telemetryNodeView{
+			NodeDBID:                   node.NodeDBID,
+			NodeID:                     node.NodeID,
+			NodeName:                   node.NodeName,
+			NodeProtocol:               node.NodeProtocol,
+			NodeEnabled:                node.NodeEnabled,
+			CollectorStatus:            node.CollectorStatus,
+			CollectorTone:              collectorStatusTone(node.CollectorStatus),
+			CollectorLabel:             collectorStatusLabel(locale, node.CollectorStatus),
+			LastSuccessfulCollectionAt: node.LastSuccessfulCollectionAt,
+			PerUserActivityCapable:     node.Capabilities.PerUserActivity,
+			TrafficCountersCapable:     node.Capabilities.TrafficCounters,
+			FirstSeenCapable:           node.Capabilities.FirstSeen,
+			LastSeenCapable:            node.Capabilities.LastSeen,
+			ClientIPCapable:            node.Capabilities.ClientIP,
+			Warnings:                   warnings,
+			Error:                      SafeOperationalError(node.Error),
+			IssueText:                  telemetryIssueText(locale, node),
+			Rows:                       buildTelemetrySessionRows(node.Sessions),
+			SkippedReason:              node.SkippedReason,
+			HasIssues:                  hasIssues,
+		})
+	}
+	return result
+}
+
+func buildTelemetryIssueNodes(nodesList []telemetryNodeView) []telemetryNodeView {
+	result := make([]telemetryNodeView, 0, len(nodesList))
+	for _, node := range nodesList {
+		if node.HasIssues {
+			result = append(result, node)
+		}
+	}
+	return result
+}
+
+func telemetryIssueText(locale Locale, node telemetry.NodeCollectorView) string {
+	if safe := strings.TrimSpace(SafeOperationalError(node.Error)); safe != "" {
+		return safe
+	}
+	if len(node.Warnings) > 0 {
+		items := make([]string, 0, len(node.Warnings))
+		for _, warning := range node.Warnings {
+			safe := strings.TrimSpace(SafeOperationalError(warning))
+			if safe == "" {
+				continue
+			}
+			items = append(items, safe)
+		}
+		if len(items) > 0 {
+			return strings.Join(items, "; ")
+		}
+	}
+	switch node.SkippedReason {
+	case "missing_api_url":
+		return Translate(locale, "sessions.issue_missing_api_url")
+	case "missing_node_id":
+		return Translate(locale, "sessions.issue_missing_node_id")
+	case "missing_node_secret":
+		return Translate(locale, "sessions.issue_missing_node_secret")
+	}
+	switch telemetry.NodeIssueCode(node) {
+	case "collector_warning":
+		return Translate(locale, "sessions.issue_collector_warning")
+	case "collector_partial":
+		return Translate(locale, "sessions.issue_collector_partial")
+	case "collector_unavailable":
+		return Translate(locale, "sessions.issue_collector_unavailable")
+	case "collector_disabled":
+		return Translate(locale, "sessions.issue_collector_disabled")
+	default:
+		return ""
+	}
 }
